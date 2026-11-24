@@ -55,7 +55,7 @@ export function createApp(deps: AppDependencies): Express {
   });
 
   app.use((req, res, next) => {
-    if (req.path.startsWith('/api') && !originValidator.isAllowed(req.headers.origin)) {
+    if (req.path.startsWith('/api') && req.headers.origin && !originValidator.isAllowed(req.headers.origin)) {
       res.status(403).json({ error: { code: 'UNAUTHORIZED', message: 'Origin not allowed' } });
       return;
     }
@@ -65,8 +65,8 @@ export function createApp(deps: AppDependencies): Express {
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (originValidator.isAllowed(origin)) callback(null, true);
-        else callback(new Error('Origin not allowed'));
+        if (!origin || originValidator.isAllowed(origin)) callback(null, true);
+        else callback(null, false);
       },
       methods: ['GET', 'POST', 'OPTIONS'],
       allowedHeaders: ['Content-Type'],
@@ -93,6 +93,12 @@ export function createApp(deps: AppDependencies): Express {
     res.json(toPublicConfig(config));
   });
 
+  // General health route alias for cloud monitors and load balancers
+  app.get('/health', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ status: 'ok', service: 'Drooit Signaling Server' });
+  });
+
   app.use('/api', (req, res) => {
     res.status(404).json({
       error: { code: 'INVALID_INPUT', message: `Unknown API route: ${req.method} ${req.path}` },
@@ -100,6 +106,28 @@ export function createApp(deps: AppDependencies): Express {
   });
 
   const clientDistDir = deps.clientDistDir ?? path.resolve(process.cwd(), 'dist/client');
+
+  app.get('/', (req, res, next) => {
+    const wantsJson =
+      req.headers.accept?.includes('application/json') ||
+      req.query.format === 'json' ||
+      !existsSync(clientDistDir);
+
+    if (wantsJson) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        service: 'Drooit Signaling Server',
+        status: 'online',
+        protocolVersion: PROTOCOL_VERSION,
+        uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+        activeSessions: sessions.size,
+        time: new Date().toISOString(),
+      });
+      return;
+    }
+    next();
+  });
+
   if (existsSync(clientDistDir)) {
     app.use(
       express.static(clientDistDir, {
@@ -123,7 +151,7 @@ export function createApp(deps: AppDependencies): Express {
       });
     });
   } else if (config.env === 'production') {
-    logger.warn('Client build not found; serving API only', { clientDistDir });
+    logger.warn('Client build not found; serving API and status only', { clientDistDir });
   }
 
   app.use((_req, res) => {

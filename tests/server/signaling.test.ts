@@ -316,6 +316,21 @@ describe('Socket.IO pairing and signaling', () => {
 });
 
 describe('HTTP endpoints', () => {
+  it('serves root status and health aliases without requiring Origin header', async () => {
+    const root = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: { accept: 'application/json' },
+    });
+    expect(root.status).toBe(200);
+    const rootBody = (await root.json()) as Record<string, unknown>;
+    expect(rootBody.service).toBe('Drooit Signaling Server');
+    expect(rootBody.status).toBe('online');
+
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(health.status).toBe(200);
+    const healthBody = (await health.json()) as Record<string, unknown>;
+    expect(healthBody.status).toBe('ok');
+  });
+
   it('serves health and public config without secrets', async () => {
     const health = await fetch(`http://127.0.0.1:${port}/api/health`, { headers: { origin: ORIGIN } });
     expect(health.status).toBe(200);

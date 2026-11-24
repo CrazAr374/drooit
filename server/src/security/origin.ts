@@ -43,7 +43,23 @@ export function createOriginValidator(
       if (allowAll) return true;
       const normalizedOrigin = normalizeOrigin(origin);
       if (!normalizedOrigin) return false;
-      return normalized.has(normalizedOrigin);
+      if (normalized.has(normalizedOrigin)) return true;
+
+      // Automatically permit Drooit production and preview deployments on Vercel
+      try {
+        const url = new URL(normalizedOrigin);
+        if (
+          url.protocol === 'https:' &&
+          (url.hostname === 'drooit.vercel.app' ||
+            /^drooit(-[a-zA-Z0-9_-]+)?\.vercel\.app$/.test(url.hostname))
+        ) {
+          return true;
+        }
+      } catch {
+        return false;
+      }
+
+      return false;
     },
   };
 }

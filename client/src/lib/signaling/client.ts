@@ -35,10 +35,17 @@ export class SignalingClient {
 
     return new Promise((resolve, reject) => {
       // Connect to configurable signaling server or host origin
-      const signalingUrl =
+      const envSignalingUrl =
         (import.meta.env.VITE_SIGNALING_SERVER_URL as string | undefined) ||
-        (import.meta.env.VITE_SIGNALING_URL as string | undefined) ||
-        undefined;
+        (import.meta.env.VITE_SIGNALING_URL as string | undefined);
+
+      const defaultRenderUrl = 'https://drooit-signaling.onrender.com';
+      const isDrooitVercel =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'drooit.vercel.app' ||
+          window.location.hostname.endsWith('.vercel.app'));
+
+      const signalingUrl = envSignalingUrl || (isDrooitVercel ? defaultRenderUrl : undefined);
 
       this.socket = io(signalingUrl, {
         path: '/socket.io',

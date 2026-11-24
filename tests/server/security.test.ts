@@ -102,6 +102,15 @@ describe('origin validation', () => {
     });
     expect(validator.isAllowed(undefined)).toBe(true);
   });
+
+  it('automatically permits drooit vercel production and preview origins', () => {
+    const validator = createOriginValidator(['https://drooit.example'], { isProduction: true });
+    expect(validator.isAllowed('https://drooit.vercel.app')).toBe(true);
+    expect(validator.isAllowed('https://drooit-preview-abc.vercel.app')).toBe(true);
+    expect(validator.isAllowed('https://drooit-git-main-crazar374s-projects.vercel.app')).toBe(true);
+    expect(validator.isAllowed('https://attacker.vercel.app')).toBe(false);
+    expect(validator.isAllowed('http://drooit.vercel.app')).toBe(false); // non-TLS rejected
+  });
 });
 
 describe('SlidingWindowRateLimiter', () => {

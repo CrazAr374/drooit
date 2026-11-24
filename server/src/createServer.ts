@@ -73,15 +73,15 @@ export function createDrooitServer(options: DrooitServerOptions = {}): DrooitSer
     transports: ['websocket', 'polling'],
     cors: {
       origin: (origin, callback) => {
-        if (originValidator.isAllowed(origin)) callback(null, true);
-        else callback(new Error('Origin not allowed'));
+        if (!origin || originValidator.isAllowed(origin)) callback(null, true);
+        else callback(null, false);
       },
       methods: ['GET', 'POST'],
       credentials: false,
       maxAge: 600,
     },
     allowRequest: (req, callback) => {
-      callback(null, originValidator.isAllowed(req.headers.origin));
+      callback(null, !req.headers.origin || originValidator.isAllowed(req.headers.origin));
     },
   });
 
