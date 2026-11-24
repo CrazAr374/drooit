@@ -34,8 +34,13 @@ export class SignalingClient {
     if (this.socket && this.socket.connected) return Promise.resolve();
 
     return new Promise((resolve, reject) => {
-      // Connect to the host origin or default proxy
-      this.socket = io({
+      // Connect to configurable signaling server or host origin
+      const signalingUrl =
+        (import.meta.env.VITE_SIGNALING_SERVER_URL as string | undefined) ||
+        (import.meta.env.VITE_SIGNALING_URL as string | undefined) ||
+        undefined;
+
+      this.socket = io(signalingUrl, {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
         reconnection: true,
@@ -49,12 +54,21 @@ export class SignalingClient {
       });
 
       this.socket.on('connect_error', (error) => {
+        const isVercelWithoutBackend =
+          !signalingUrl &&
+          typeof window !== 'undefined' &&
+          window.location.hostname.includes('vercel.app');
+
+        const message = isVercelWithoutBackend
+          ? 'Signaling server not connected. Vercel hosts the frontend static files; please connect your backend signaling server by setting VITE_SIGNALING_SERVER_URL in Vercel project settings.'
+          : error.message || 'Failed to connect to signaling server';
+
         this.events.onError?.({
           code: 'INTERNAL',
-          message: error.message || 'Failed to connect to signaling server',
+          message,
           retryable: true,
         });
-        reject(error);
+        reject(new Error(message));
       });
 
       this.socket.on('peer:joined', (data: { peer: DeviceInfo; session: SessionSnapshot }) => {

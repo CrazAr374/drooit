@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: drooit-signaling
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build:server
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        value: https://drooit.vercel.app,http://localhost:5173
+      - key: PORT
+        value: 10000

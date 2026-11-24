@@ -20,7 +20,7 @@ const csv = (value: string): string[] =>
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
+  CLIENT_ORIGIN: z.string().default('http://localhost:5173,https://drooit.vercel.app'),
   PUBLIC_URL: z.string().url().optional(),
   TRUST_PROXY: z
     .string()
