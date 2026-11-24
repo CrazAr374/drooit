@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0D0D0F" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <title>Drooit — Send anything. Anywhere. | P2P File Sharing</title>
+    <meta
+      name="description"
+      content="Send files, photos, 4K videos, and folders directly between devices with zero cloud uploads or sign-up. End-to-end encrypted WebRTC peer-to-peer file sharing."
+    />
+    <meta
+      name="keywords"
+      content="drooit, drooit vercel, p2p file sharing, webrtc file transfer, airdrop alternative, send large files, secure file transfer, browser to browser, encrypted file sharing, cross platform file share"
+    />
+    <meta name="author" content="Drooit" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <link rel="canonical" href="https://drooit.vercel.app/" />
+
+    <!-- Open Graph / Facebook / LinkedIn / Discord -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Drooit" />
+    <meta property="og:url" content="https://drooit.vercel.app/" />
+    <meta property="og:title" content="Drooit — Send anything. Anywhere. | P2P File Sharing" />
+    <meta
+      property="og:description"
+      content="Send files, photos, 4K videos, and folders directly between devices with zero cloud uploads or sign-up. End-to-end encrypted WebRTC peer-to-peer file sharing."
+    />
+    <meta property="og:image" content="https://drooit.vercel.app/Drooit.png" />
+    <meta property="og:image:secure_url" content="https://drooit.vercel.app/Drooit.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="Drooit — Account-free Peer-to-Peer File Sharing" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://drooit.vercel.app/" />
+    <meta name="twitter:title" content="Drooit — Send anything. Anywhere. | P2P File Sharing" />
+    <meta
+      name="twitter:description"
+      content="Send files, photos, 4K videos, and folders directly between devices with zero cloud uploads or sign-up. End-to-end encrypted WebRTC peer-to-peer file sharing."
+    />
+    <meta name="twitter:image" content="https://drooit.vercel.app/Drooit.png" />
+    <meta name="twitter:image:alt" content="Drooit — P2P File Sharing" />
+
+    <!-- Mobile & PWA Configuration -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Drooit" />
+    <meta name="application-name" content="Drooit" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Icons & Favicons -->
+    <link rel="icon" type="image/png" href="/Drooit.png" />
+    <link rel="shortcut icon" type="image/png" href="/Drooit.png" />
+    <link rel="apple-touch-icon" href="/Drooit.png" />
+
+    <!-- Structured Data (JSON-LD) for Maximum Google Ranking -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://drooit.vercel.app/#website",
+            "url": "https://drooit.vercel.app/",
+            "name": "Drooit",
+            "description": "Fast, private, account-free peer-to-peer file sharing directly between devices.",
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://drooit.vercel.app/#webapp",
+            "name": "Drooit",
+            "url": "https://drooit.vercel.app/",
+            "description": "Fast, private, account-free peer-to-peer file sharing directly between web browsers with WebRTC end-to-end encryption.",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "All (Web Browser, iOS, Android, Windows, macOS, Linux)",
+            "browserRequirements": "Requires WebRTC-compatible browser (Chrome, Safari, Edge, Firefox)",
+            "image": "https://drooit.vercel.app/Drooit.png",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "featureList": [
+              "Peer-to-peer direct file transfer via WebRTC DataChannels",
+              "End-to-end encryption with zero cloud storage",
+              "No registration, no accounts, and no email required",
+              "Optical QR and 6-digit numeric device pairing",
+              "Unrestricted file size and folder transfer support",
+              "Bit-for-bit SHA-256 integrity verification"
+            ]
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://drooit.vercel.app/#organization",
+            "name": "Drooit",
+            "url": "https://drooit.vercel.app/",
+            "logo": "https://drooit.vercel.app/Drooit.png"
+          }
+        ]
+      }
+    </script>
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash of the wrong theme.
+      (function () {
+        try {
+          var raw = localStorage.getItem('drooit-preferences');
+          var parsed = raw ? JSON.parse(raw) : null;
+          var theme = parsed && parsed.state && parsed.state.theme;
+          if (theme === 'light') document.documentElement.classList.remove('dark');
+          else document.documentElement.classList.add('dark');
+        } catch (error) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/client/src/main.tsx"></script>
+  </body>
+</html>

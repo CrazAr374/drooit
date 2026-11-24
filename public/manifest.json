@@ -1,0 +1,21 @@
+{
+  "short_name": "Drooit",
+  "name": "Drooit — Send anything. Anywhere.",
+  "description": "Fast, private, account-free peer-to-peer file sharing directly between devices.",
+  "id": "https://drooit.vercel.app/",
+  "start_url": "https://drooit.vercel.app/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/Drooit.png",
+      "type": "image/png",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "background_color": "#0D0D0F",
+  "theme_color": "#0D0D0F",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["utilities", "productivity"]
+}

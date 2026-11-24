@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Industrial Titanium Grayscale — Light Architecture */
+    --background: 240 6% 97%;       /* #F4F4F6 Clean Architectural Zinc */
+    --foreground: 240 10% 8%;       /* #121215 Deep Obsidian Ink */
+    --card: 0 0% 100%;              /* #FFFFFF Pure White Surface */
+    --card-foreground: 240 10% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 8%;
+    --primary: 240 10% 8%;          /* #121215 Stark Ink Primary CTA */
+    --primary-foreground: 0 0% 100%;/* #FFFFFF Crisp White Text on CTA */
+    --secondary: 240 5% 92%;       /* #ECECEF Neutral Surface */
+    --secondary-foreground: 240 10% 8%;
+    --muted: 240 5% 92%;
+    --muted-foreground: 240 4% 46%;/* #71717A Neutral Zinc */
+    --accent: 240 5% 90%;          /* #E4E4E8 Subtle Accent */
+    --accent-foreground: 240 10% 8%;
+    --destructive: 0 72% 51%;      /* #EF4444 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 70% 38%;         /* #15803D Clean Emerald */
+    --success-foreground: 0 0% 100%;
+    --border: 240 5% 86%;          /* #D8D8DF Hairline Border */
+    --input: 240 5% 86%;
+    --ring: 240 10% 8%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Industrial Titanium Grayscale — Dark Precision */
+    --background: 240 5% 5%;        /* #0D0D0F Warm Carbon Titanium (No Blue) */
+    --foreground: 0 0% 98%;         /* #FAFAFA Crisp Stark White */
+    --card: 240 5% 8%;             /* #141417 Milled Titanium Surface */
+    --card-foreground: 0 0% 98%;
+    --popover: 240 5% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;           /* #FAFAFA Stark White Primary CTA */
+    --primary-foreground: 240 10% 5%;/* #0D0D0F Pitch Black Text on CTA */
+    --secondary: 240 4% 13%;       /* #202024 Subtle Titanium Secondary */
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4% 13%;
+    --muted-foreground: 240 4% 56%;/* #8E8E98 Muted Titanium Zinc */
+    --accent: 240 4% 17%;          /* #2A2A30 Subtle Dark Accent */
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 70% 45%;         /* #22C55E Crisp Emerald */
+    --success-foreground: 0 0% 100%;
+    --border: 240 4% 17%;          /* #2A2A30 Precision Hairline Border */
+    --input: 240 4% 17%;
+    --ring: 0 0% 98%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-foreground selection:text-background min-h-screen overflow-x-hidden font-sans;
+  }
+}
+
+/* Precision Micro-Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Precision Hardware Card - No AI fluff */
+.drooit-card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.625rem; /* 10px */
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 4px 16px -2px rgba(0, 0, 0, 0.06);
+}
+
+.dark .drooit-card {
+  box-shadow: 
+    0 0 0 1px hsl(var(--border)),
+    0 4px 20px -2px rgba(0, 0, 0, 0.6);
+}
+
+.drooit-card-hover:hover {
+  border-color: hsl(var(--muted-foreground) / 0.5);
+  box-shadow: 
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 8px 24px -4px rgba(0, 0, 0, 0.12);
+}
+
+.dark .drooit-card-hover:hover {
+  border-color: hsl(var(--muted-foreground) / 0.4);
+  box-shadow: 
+    0 0 0 1px hsl(var(--muted-foreground) / 0.4),
+    0 8px 28px -4px rgba(0, 0, 0, 0.8);
+}
+
+/* Optical QR Scanner Viewfinder Reticle & Laser */
+@keyframes laser-sweep {
+  0% {
+    top: 6%;
+    opacity: 0.7;
+  }
+  50% {
+    top: 92%;
+    opacity: 1;
+  }
+  100% {
+    top: 6%;
+    opacity: 0.7;
+  }
+}
+
+.animate-laser {
+  animation: laser-sweep 2.4s ease-in-out infinite;
+}
+
+/* Subtle Radar Ping for Device Search */
+@keyframes radar-pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+}
+
+.animate-radar {
+  animation: radar-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
