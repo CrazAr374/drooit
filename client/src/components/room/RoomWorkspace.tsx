@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import type { ChatMessage, PeerSnapshot, SharedFileMeta } from '@shared/types.js';
 import type { AudioRecordingResult } from '../../lib/audio/recorder.js';
+import type { SenderSnapshot, ReceiverSnapshot } from '../../lib/transfer/types.js';
+import { formatSpeed, formatEta, formatPercent } from '@shared/format.js';
 import { PeerRoster } from './PeerRoster.js';
 import { FolderExplorer } from './FolderExplorer.js';
 import { ChatStream } from './ChatStream.js';
@@ -30,6 +32,11 @@ interface RoomWorkspaceProps {
   expiresAt: number | null;
   connectionState: 'idle' | 'signaling' | 'connecting' | 'connected' | 'disconnected' | 'failed';
   currentDeviceName?: string;
+  senderSnapshot?: SenderSnapshot | null;
+  receiverSnapshot?: ReceiverSnapshot | null;
+  onPauseTransfer?: () => void;
+  onResumeTransfer?: () => void;
+  onCancelTransfer?: () => void;
   onNavigateHome: () => void;
   onDisconnectRoom: () => void;
   onReconnectRoom: () => void;
@@ -52,6 +59,11 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({
   expiresAt,
   connectionState,
   currentDeviceName,
+  senderSnapshot,
+  receiverSnapshot,
+  onPauseTransfer,
+  onResumeTransfer,
+  onCancelTransfer,
   onNavigateHome,
   onDisconnectRoom,
   onReconnectRoom,
@@ -175,6 +187,140 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({
           )}
         </div>
       </div>
+
+      {/* Active Transfer Progress HUD (Sender) */}
+      {senderSnapshot && (senderSnapshot.phase === 'transferring' || senderSnapshot.phase === 'paused') && (
+        <div className="mb-3 p-3 rounded-xl bg-secondary/80 border border-yellow-400/30 flex items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="font-semibold text-foreground truncate">
+                  Transferring files... (
+                  {formatPercent(
+                    senderSnapshot.totalBytes > 0
+                      ? (senderSnapshot.transferredBytes / senderSnapshot.totalBytes) * 100
+                      : 0,
+                  )}
+                  )
+                </span>
+                <span className="font-mono text-muted-foreground text-[11px] shrink-0 ml-2">
+                  {formatSpeed(senderSnapshot.speedBps)} • ETA: {formatEta(senderSnapshot.etaSeconds)}
+                </span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-secondary overflow-hidden">
+                <div
+                  className="h-full bg-yellow-400 transition-all duration-200 rounded-full"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      senderSnapshot.totalBytes > 0
+                        ? (senderSnapshot.transferredBytes / senderSnapshot.totalBytes) * 100
+                        : 0,
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {senderSnapshot.phase === 'paused' ? (
+              <Button variant="ghost" size="sm" onClick={onResumeTransfer} className="h-7 px-2 text-xs">
+                Resume
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={onPauseTransfer} className="h-7 px-2 text-xs">
+                Pause
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onCancelTransfer}
+              className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Active Transfer Progress HUD (Receiver) */}
+      {receiverSnapshot && (receiverSnapshot.phase === 'transferring' || receiverSnapshot.phase === 'paused') && (
+        <div className="mb-3 p-3 rounded-xl bg-secondary/80 border border-yellow-400/30 flex items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="font-semibold text-foreground truncate">
+                  Receiving files... (
+                  {formatPercent(
+                    receiverSnapshot.totalBytes > 0
+                      ? (receiverSnapshot.receivedBytes / receiverSnapshot.totalBytes) * 100
+                      : 0,
+                  )}
+                  )
+                </span>
+                <span className="font-mono text-muted-foreground text-[11px] shrink-0 ml-2">
+                  {formatSpeed(receiverSnapshot.speedBps)} • ETA: {formatEta(receiverSnapshot.etaSeconds)}
+                </span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-secondary overflow-hidden">
+                <div
+                  className="h-full bg-yellow-400 transition-all duration-200 rounded-full"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      receiverSnapshot.totalBytes > 0
+                        ? (receiverSnapshot.receivedBytes / receiverSnapshot.totalBytes) * 100
+                        : 0,
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onCancelTransfer}
+              className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Success Confirmation Banner (Non-blocking) */}
+      {senderSnapshot && senderSnapshot.phase === 'completed' && (
+        <div className="mb-3 px-3.5 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-semibold flex items-center justify-between animate-in fade-in">
+          <span className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+            All files successfully sent and verified bit-for-bit with SHA-256.
+          </span>
+        </div>
+      )}
+
+      {receiverSnapshot && receiverSnapshot.phase === 'completed' && (
+        <div className="mb-3 px-3.5 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-semibold flex items-center justify-between animate-in fade-in">
+          <span className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+            All files successfully received and verified bit-for-bit with SHA-256.
+          </span>
+          {onDownloadAll && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onDownloadAll}
+              className="h-6 text-[11px] px-2 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+            >
+              Download All (ZIP)
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Roster Overlay Drawer (when open) */}
       {isRosterOpen && (

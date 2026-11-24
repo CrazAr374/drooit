@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-  UploadCloud,
-  DownloadCloud,
+  MessageSquare,
+  Radio,
   ArrowRight,
   Shield,
   Zap,
   HardDrive,
-  Cpu,
+  Lock,
 } from 'lucide-react';
 import { Button } from '../components/common/Button.js';
 
@@ -28,19 +28,19 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* Hero Header */}
       <div className="flex flex-col items-center text-center gap-3.5 max-w-2xl">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-medium bg-secondary text-foreground border border-border shadow-sm">
-          <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-          <span>Direct Peer-to-Peer • Zero Cloud Storage</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse shadow-[0_0_8px_#facc15]" />
+          <span>Direct Peer-to-Peer • End-to-End Encrypted</span>
         </div>
 
         <h1 className="font-display text-4xl sm:text-6xl font-extrabold tracking-tight text-foreground leading-[1.1]">
-          Share files across devices.{' '}
+          Connect first.{' '}
           <span className="text-muted-foreground block font-bold">
-            Instantly and privately.
+            Chat encrypted & share files.
           </span>
         </h1>
 
         <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-lg font-normal">
-          No accounts. No cloud uploads. Direct browser-to-browser transfers over your local network with end-to-end encryption.
+          Direct browser-to-browser P2P rooms with end-to-end encryption. Real-time chat, voice memos, and direct high-speed file streaming. Zero accounts. Zero cloud storage.
         </p>
 
         <div className="flex items-center gap-3 pt-1">
@@ -64,7 +64,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
       {/* Two Core Action Cards — Tactile Precision Console */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full max-w-3xl">
-        {/* Send Files Card */}
+        {/* Create Encrypted Room Card */}
         <div
           onClick={onNavigateSend}
           className="group relative flex flex-col justify-between p-7 rounded-xl bg-card border border-border drooit-card drooit-card-hover cursor-pointer transition-all duration-150 text-left"
@@ -72,22 +72,22 @@ export const HomePage: React.FC<HomePageProps> = ({
           <div>
             <div className="flex items-center justify-between w-full mb-5">
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-secondary text-foreground border border-border shadow-sm">
-                <UploadCloud className="h-5 w-5" />
+                <MessageSquare className="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
               </div>
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest px-2 py-0.5 rounded bg-secondary border border-border">
-                01 / OUTGOING
+                01 / HOST ROOM
               </span>
             </div>
 
             <h2 className="font-display text-xl font-bold text-foreground mb-1.5 tracking-tight">
-              Send files
+              Create Encrypted Room
             </h2>
             <p className="text-xs text-muted-foreground leading-relaxed mb-5">
-              Drop photos, high-res video, audio, or entire directory folders. Generates an instant optical QR code or a 6-digit numeric PIN.
+              Start an encrypted P2P space instantly. Connect first with a 6-digit PIN or optical QR code, then chat, send voice notes, and drop files together in real time.
             </p>
 
             <div className="flex flex-wrap gap-1.5 mb-6">
-              {['Photos', '4K Video', 'Documents', 'Folders', 'Archives'].map((tag) => (
+              {['E2E Encrypted Chat', 'Voice Memos', 'Folder Sharing', 'Lossless Files', 'Zero Accounts'].map((tag) => (
                 <span
                   key={tag}
                   className="text-[10px] font-medium text-muted-foreground bg-secondary/80 px-2 py-0.5 rounded border border-border/80"
@@ -103,12 +103,12 @@ export const HomePage: React.FC<HomePageProps> = ({
             size="md"
             className="w-full font-bold text-xs h-10 rounded-lg group-hover:opacity-95"
           >
-            <span>Select Files to Send</span>
+            <span>Create Room & Connect</span>
             <ArrowRight className="w-3.5 h-3.5 ml-1.5 transition-transform group-hover:translate-x-1" />
           </Button>
         </div>
 
-        {/* Receive Files Card */}
+        {/* Join Encrypted Room Card */}
         <div
           onClick={onNavigateReceive}
           className="group relative flex flex-col justify-between p-7 rounded-xl bg-card border border-border drooit-card drooit-card-hover cursor-pointer transition-all duration-150 text-left"
@@ -116,22 +116,22 @@ export const HomePage: React.FC<HomePageProps> = ({
           <div>
             <div className="flex items-center justify-between w-full mb-5">
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-secondary text-foreground border border-border shadow-sm">
-                <DownloadCloud className="h-5 w-5" />
+                <Radio className="h-5 w-5 text-foreground" />
               </div>
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest px-2 py-0.5 rounded bg-secondary border border-border">
-                02 / INCOMING
+                02 / JOIN ROOM
               </span>
             </div>
 
             <h2 className="font-display text-xl font-bold text-foreground mb-1.5 tracking-tight">
-              Receive files
+              Join Existing Room
             </h2>
             <p className="text-xs text-muted-foreground leading-relaxed mb-5">
-              Scan an optical QR code with your phone camera or enter a 6-digit PIN to stream files straight to your device.
+              Scan an optical QR code with your phone camera or enter a 6-digit PIN to connect directly to an active space. Chat instantly and receive files straight to your downloads.
             </p>
 
             <div className="flex flex-wrap gap-1.5 mb-6">
-              {['Camera Scan', '6-Digit PIN', 'Direct Save', 'ZIP Export', 'Verified'].map((tag) => (
+              {['6-Digit PIN', 'Camera Scan', 'Instant Connect', 'Direct P2P', 'End-to-End Encrypted'].map((tag) => (
                 <span
                   key={tag}
                   className="text-[10px] font-medium text-muted-foreground bg-secondary/80 px-2 py-0.5 rounded border border-border/80"
@@ -158,51 +158,51 @@ export const HomePage: React.FC<HomePageProps> = ({
         <div className="flex flex-col p-5 rounded-xl bg-card border border-border drooit-card">
           <div className="flex items-center justify-between mb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary text-foreground border border-border">
-              <Zap className="w-4 h-4" />
+              <Lock className="w-4 h-4 text-yellow-500 dark:text-yellow-400" />
             </div>
             <span className="text-[11px] font-semibold text-muted-foreground bg-secondary px-2 py-0.5 rounded border border-border">
-              0 B Cloud
+              Encrypted
             </span>
           </div>
           <h3 className="font-bold text-sm text-foreground mb-1 tracking-tight">
-            Direct Peer-to-Peer
+            End-to-End Encrypted Chat
           </h3>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Transfers stream directly between browser memories across local Wi-Fi or WebRTC data channels with zero third-party cloud storage.
+            Text chat, voice notes, and file attachments stream directly over WebRTC DataChannels. Keys stay strictly on your devices — no server ever sees your messages.
           </p>
         </div>
 
         <div className="flex flex-col p-5 rounded-xl bg-card border border-border drooit-card">
           <div className="flex items-center justify-between mb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary text-foreground border border-border">
-              <HardDrive className="w-4 h-4" />
+              <HardDrive className="w-4 h-4 text-emerald-500" />
             </div>
             <span className="text-[11px] font-semibold text-muted-foreground bg-secondary px-2 py-0.5 rounded border border-border">
               100% Lossless
             </span>
           </div>
           <h3 className="font-bold text-sm text-foreground mb-1 tracking-tight">
-            Bit-for-Bit Fidelity
+            Direct File & Folder Streaming
           </h3>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Zero re-encoding or compression. Large archives, 4K footage, and RAW images transfer in exact bit-for-bit quality with SHA-256 verification.
+            Zero cloud uploads and zero compression. Large archives, 4K video, and folders stream bit-for-bit with SHA-256 verification and OPFS disk memory protection.
           </p>
         </div>
 
         <div className="flex flex-col p-5 rounded-xl bg-card border border-border drooit-card">
           <div className="flex items-center justify-between mb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-secondary text-foreground border border-border">
-              <Cpu className="w-4 h-4" />
+              <Zap className="w-4 h-4 text-yellow-500 dark:text-yellow-400" />
             </div>
             <span className="text-[11px] font-semibold text-muted-foreground bg-secondary px-2 py-0.5 rounded border border-border">
-              Cross-Platform
+              Connect First
             </span>
           </div>
           <h3 className="font-bold text-sm text-foreground mb-1 tracking-tight">
-            Zero Install Required
+            Connect First, Share Anything
           </h3>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Runs natively inside modern web browsers across iOS, Android, macOS, Windows, and Linux without native apps or drivers.
+            No need to pick files beforehand. Open a room, connect your devices instantly, and freely exchange chats, voice notes, and files back and forth in real time.
           </p>
         </div>
       </div>
@@ -211,7 +211,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       <div className="w-full max-w-3xl flex items-center justify-between p-4 rounded-xl bg-secondary/50 border border-border text-xs text-muted-foreground">
         <div className="flex items-center gap-2.5">
           <Shield className="w-4 h-4 text-foreground shrink-0" />
-          <span>Drooit does not retain files or track users. Sessions are strictly ephemeral and vanish when closed.</span>
+          <span>Drooit does not retain chats, voice notes, or files. Connections are strictly ephemeral and vanish when closed.</span>
         </div>
       </div>
     </div>

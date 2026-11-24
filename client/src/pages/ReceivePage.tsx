@@ -215,6 +215,9 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
           expiresAt={null}
           connectionState={connectionState}
           currentDeviceName={deviceName}
+          senderSnapshot={null}
+          receiverSnapshot={receiverSnapshot}
+          onCancelTransfer={cancelTransfer}
           onNavigateHome={() => {
             resetSession();
             onNavigateHome();
@@ -352,19 +355,19 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
           <span>Home</span>
         </button>
         <span className="text-muted-foreground/30">/</span>
-        <span className="text-foreground font-semibold">Receive files</span>
+        <span className="text-foreground font-semibold">Join Room</span>
       </div>
 
       <div className="w-full p-6 sm:p-7 rounded-xl bg-card border border-border shadow-xl flex flex-col items-center text-center drooit-card">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-foreground border border-border mb-3.5 shadow-sm">
-          <Hash className="h-6 w-6 text-foreground" />
+          <Hash className="h-6 w-6 text-yellow-500 dark:text-yellow-400" />
         </div>
 
         <h2 className="text-xl sm:text-2xl font-bold font-display text-foreground mb-1 tracking-tight">
-          Enter 6-digit code
+          Join Encrypted Room
         </h2>
         <p className="text-xs text-muted-foreground mb-6 max-w-xs leading-relaxed">
-          Type the 6-digit code displayed on the sending device
+          Connect first. Enter the 6-digit code or scan the optical QR code to chat and share files.
         </p>
 
         {/* 6 Structured Digit Inputs */}
@@ -401,7 +404,7 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
             disabled={fullCode.length !== 6 || isJoining}
             className="w-full font-bold text-xs h-10 rounded-lg"
           >
-            <span>Connect & Receive</span>
+            <span>Connect & Join Room</span>
             <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
           </Button>
         </form>

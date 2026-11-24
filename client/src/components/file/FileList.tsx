@@ -17,7 +17,7 @@ interface FileListProps {
   files: File[];
   onRemoveFile: (index: number) => void;
   onClearFiles: () => void;
-  onContinue: () => void;
+  onContinue?: () => void;
 }
 
 function getFileIcon(file: File) {
@@ -141,16 +141,18 @@ export const FileList: React.FC<FileListProps> = ({
         <div className="text-xs text-muted-foreground font-medium">
           Files stay local until receiver confirms transfer
         </div>
-        <Button
-          type="button"
-          variant="accent"
-          size="md"
-          onClick={onContinue}
-          className="w-full sm:w-auto rounded-lg font-bold text-xs h-10 px-6"
-        >
-          <span>Continue to Pairing</span>
-          <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-        </Button>
+        {onContinue && (
+          <Button
+            type="button"
+            variant="accent"
+            size="md"
+            onClick={onContinue}
+            className="w-full sm:w-auto rounded-lg font-bold text-xs h-10 px-6"
+          >
+            <span>Continue to Pairing</span>
+            <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+          </Button>
+        )}
       </div>
     </div>
   );

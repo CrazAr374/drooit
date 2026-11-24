@@ -12,19 +12,19 @@ export const HowItWorksModal: React.FC<HowItWorksModalProps> = ({ isOpen, onClos
 
   const steps = [
     {
-      icon: <Sparkles className="w-4 h-4 text-primary" />,
-      title: '1. Choose your files',
-      desc: 'Select any files, photos, high-res videos, documents, or entire folders. No arbitrary file size caps.',
+      icon: <QrCode className="w-4 h-4 text-yellow-500 dark:text-yellow-400" />,
+      title: '1. Connect first with PIN or QR',
+      desc: 'Create or join an encrypted room instantly with a 6-digit code or optical QR scan. Zero sign-up, zero accounts.',
     },
     {
-      icon: <QrCode className="w-4 h-4 text-foreground" />,
-      title: '2. Connect your devices',
-      desc: 'Scan the QR code with your phone camera or enter the 6-digit PIN on the receiving device.',
+      icon: <Sparkles className="w-4 h-4 text-yellow-500" />,
+      title: '2. End-to-end encrypted chat & voice',
+      desc: 'Chat in real time, record voice notes, and tag folder references directly over peer-to-peer WebRTC data channels.',
     },
     {
       icon: <Zap className="w-4 h-4 text-emerald-500" />,
-      title: '3. Direct browser stream',
-      desc: 'Files stream live directly from browser to browser. Nothing is ever uploaded to a server or stored in the cloud.',
+      title: '3. Lossless file & folder sharing',
+      desc: 'Drag and drop files or folders anytime. Payloads stream live directly between browser memories with bit-for-bit SHA-256 verification.',
     },
   ];
 

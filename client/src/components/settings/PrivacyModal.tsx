@@ -12,9 +12,9 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({ isOpen, onClose }) =
 
   const points = [
     {
-      icon: <ServerOff className="w-4 h-4 text-primary" />,
+      icon: <ServerOff className="w-4 h-4 text-yellow-500 dark:text-yellow-400" />,
       title: 'Zero server storage',
-      desc: 'Files stream live between your devices and never touch a cloud server, disk, or database. Once transfer finishes, the session vanishes.',
+      desc: 'Chats, voice memos, and files stream live directly between your devices and never touch a cloud server, disk, or database. When the room closes, everything vanishes.',
     },
     {
       icon: <Zap className="w-4 h-4 text-emerald-500" />,
@@ -24,7 +24,7 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({ isOpen, onClose }) =
     {
       icon: <Lock className="w-4 h-4 text-foreground" />,
       title: 'End-to-end encrypted',
-      desc: 'Transfers use private direct channels. Only the two connected devices hold the one-time keys to unlock the transfer.',
+      desc: 'Direct P2P WebRTC tunnels. All chats, voice recordings, and file chunks are encrypted between peers. No third party or server can intercept your data.',
     },
     {
       icon: <EyeOff className="w-4 h-4 text-foreground" />,

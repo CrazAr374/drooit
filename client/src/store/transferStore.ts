@@ -185,7 +185,28 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       const filtered = newFiles.filter(
         (nf) => !current.some((cf) => cf.name === nf.name && cf.size === nf.size),
       );
-      set({ selectedFiles: [...current, ...filtered] });
+      const updated = [...current, ...filtered];
+      set({ selectedFiles: updated });
+
+      // If WebRTC is already connected, start sending the files over the data channel immediately
+      if (activeWebRtc && activeWebRtc.isOpen && filtered.length > 0) {
+        try {
+          const fileSources = createFileSources(updated);
+          const engine = new SenderEngine({
+            sources: fileSources.map((f) => f.source),
+            device: getLocalDeviceInfo(),
+            channel: activeWebRtc,
+            onUpdate: (snapshot) => {
+              set({ senderSnapshot: snapshot });
+            },
+          });
+          activeSenderEngine = engine;
+          void engine.start();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to start transfer for added files:', err);
+        }
+      }
     },
 
     removeFile: (index) => {
@@ -199,12 +220,6 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
     },
 
     startSenderSession: async () => {
-      const { selectedFiles } = get();
-      if (selectedFiles.length === 0) {
-        set({ error: { code: 'INVALID_INPUT', message: 'Please select at least one file to send.' } });
-        return;
-      }
-
       cleanupEngines();
       set({
         role: 'sender',
@@ -324,18 +339,21 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           },
           onReady: () => {
             set({ connectionState: 'connected' });
-            // Both data channels open! Instantiate and start SenderEngine
-            const fileSources = createFileSources(get().selectedFiles);
-            const engine = new SenderEngine({
-              sources: fileSources.map((f) => f.source),
-              device: getLocalDeviceInfo(),
-              channel: webrtc,
-              onUpdate: (snapshot) => {
-                set({ senderSnapshot: snapshot });
-              },
-            });
-            activeSenderEngine = engine;
-            void engine.start();
+            // Both data channels open! If files were selected before connecting, start transfer
+            const currentFiles = get().selectedFiles;
+            if (currentFiles.length > 0) {
+              const fileSources = createFileSources(currentFiles);
+              const engine = new SenderEngine({
+                sources: fileSources.map((f) => f.source),
+                device: getLocalDeviceInfo(),
+                channel: webrtc,
+                onUpdate: (snapshot) => {
+                  set({ senderSnapshot: snapshot });
+                },
+              });
+              activeSenderEngine = engine;
+              void engine.start();
+            }
           },
           onControlMessage: (message: ControlMessage) => {
             if (message.type === 'chat:message') {
