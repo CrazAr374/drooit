@@ -13,7 +13,6 @@ import { useTransferStore } from '../store/transferStore.js';
 import { QrScannerModal } from '../components/pairing/QrScannerModal.js';
 import { ReceiverConsentModal } from '../components/transfer/ReceiverConsentModal.js';
 import { TransferProgress } from '../components/transfer/TransferProgress.js';
-import { TransferComplete } from '../components/transfer/TransferComplete.js';
 import { Button } from '../components/common/Button.js';
 import { ConnectionBadge } from '../components/common/Badge.js';
 import { RoomWorkspace } from '../components/room/RoomWorkspace.js';
@@ -38,7 +37,10 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
     connectionState,
     connectionMode,
     peerDevice,
+    senderSnapshot,
     receiverSnapshot,
+    selectedFiles,
+    addFiles,
     incomingReviewFiles,
     receivedFiles,
     error,
@@ -47,14 +49,13 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
     chatMessages,
     deviceName,
     sendChatMessage,
-    sendVoiceMessage,
     disconnectRoom,
     reconnectRoom,
     acceptTransfer,
     rejectTransfer,
     cancelTransfer,
     resetSession,
-    downloadReceivedFile,
+    downloadFile,
     downloadAllZip,
   } = useTransferStore();
 
@@ -188,66 +189,45 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
   };
 
   if (connectionState === 'connected') {
-    const fileMetas: SharedFileMeta[] =
-      incomingReviewFiles ||
-      receivedFiles.map((rf) => rf.meta) ||
-      [];
+    const fileMetas: SharedFileMeta[] = [
+      ...receivedFiles.map((rf) => rf.meta),
+      ...selectedFiles.map((sf, idx) => ({
+        index: receivedFiles.length + idx,
+        name: sf.name,
+        size: sf.size,
+        mime: sf.type || 'application/octet-stream',
+        lastModified: sf.lastModified,
+        relativePath: (sf as { webkitRelativePath?: string }).webkitRelativePath || sf.name,
+      })),
+    ];
 
     return (
-      <>
-        {incomingReviewFiles && incomingReviewFiles.length > 0 && (
-          <ReceiverConsentModal
-            files={incomingReviewFiles}
-            peerName={peerDevice?.name || 'Sender'}
-            onAccept={acceptTransfer}
-            onReject={rejectTransfer}
-          />
-        )}
-        <RoomWorkspace
-          roomCode={sessionCode || fullCode}
-          sessionId={sessionId || ''}
-          isHost={isHost}
-          peers={peers}
-          files={fileMetas}
-          chatMessages={chatMessages}
-          qrDataUrl={null}
-          inviteUrl={null}
-          expiresAt={null}
-          connectionState={connectionState}
-          currentDeviceName={deviceName}
-          senderSnapshot={null}
-          receiverSnapshot={receiverSnapshot}
-          onCancelTransfer={cancelTransfer}
-          onNavigateHome={() => {
-            resetSession();
-            onNavigateHome();
-          }}
-          onDisconnectRoom={disconnectRoom}
-          onReconnectRoom={reconnectRoom}
-          onDownloadFile={downloadReceivedFile}
-          onDownloadAll={downloadAllZip}
-          onSendMessage={sendChatMessage}
-          onSendVoice={sendVoiceMessage}
-        />
-      </>
-    );
-  }
-
-  if (receiverSnapshot && receiverSnapshot.phase === 'completed') {
-    return (
-      <div className="w-full max-w-3xl mx-auto px-4 py-8">
-        <TransferComplete
-          role="receiver"
-          receivedFiles={receivedFiles}
-          totalBytes={receiverSnapshot.totalBytes}
-          onDownloadFile={downloadReceivedFile}
-          onDownloadAllZip={downloadAllZip}
-          onReset={() => {
-            resetSession();
-            onNavigateHome();
-          }}
-        />
-      </div>
+      <RoomWorkspace
+        roomCode={sessionCode || fullCode}
+        sessionId={sessionId || ''}
+        isHost={isHost}
+        peers={peers}
+        files={fileMetas}
+        chatMessages={chatMessages}
+        qrDataUrl={null}
+        inviteUrl={null}
+        expiresAt={null}
+        connectionState={connectionState}
+        currentDeviceName={deviceName}
+        senderSnapshot={senderSnapshot}
+        receiverSnapshot={receiverSnapshot}
+        onCancelTransfer={cancelTransfer}
+        onNavigateHome={() => {
+          resetSession();
+          onNavigateHome();
+        }}
+        onDisconnectRoom={disconnectRoom}
+        onReconnectRoom={reconnectRoom}
+        onAddFiles={addFiles}
+        onDownloadFile={downloadFile}
+        onDownloadAll={downloadAllZip}
+        onSendMessage={sendChatMessage}
+      />
     );
   }
 

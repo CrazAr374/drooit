@@ -38,13 +38,13 @@ export const SendPage: React.FC<SendPageProps> = ({ onNavigateHome }) => {
     peerDevice,
     senderSnapshot,
     receiverSnapshot,
+    receivedFiles,
     error,
     isHost,
     peers,
     chatMessages,
     deviceName,
     sendChatMessage,
-    sendVoiceMessage,
     disconnectRoom,
     reconnectRoom,
     removePeerFromRoom,
@@ -52,6 +52,8 @@ export const SendPage: React.FC<SendPageProps> = ({ onNavigateHome }) => {
     resumeTransfer,
     cancelTransfer,
     resetSession,
+    downloadFile,
+    downloadAllZip,
   } = useTransferStore();
 
   // Connect first: initialize session immediately on mount
@@ -68,14 +70,17 @@ export const SendPage: React.FC<SendPageProps> = ({ onNavigateHome }) => {
 
   // When connected, stay inside the collaborative Room Workspace (Files + Chat together)
   if (connectionState === 'connected') {
-    const fileMetas: SharedFileMeta[] = selectedFiles.map((f, i) => ({
-      index: i,
-      name: f.name,
-      size: f.size,
-      mime: f.type || 'application/octet-stream',
-      lastModified: f.lastModified || Date.now(),
-      relativePath: (f as { webkitRelativePath?: string }).webkitRelativePath || f.name,
-    }));
+    const fileMetas: SharedFileMeta[] = [
+      ...selectedFiles.map((f, i) => ({
+        index: i,
+        name: f.name,
+        size: f.size,
+        mime: f.type || 'application/octet-stream',
+        lastModified: f.lastModified || Date.now(),
+        relativePath: (f as { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      })),
+      ...receivedFiles.map((rf) => rf.meta),
+    ];
 
     return (
       <RoomWorkspace
@@ -103,8 +108,9 @@ export const SendPage: React.FC<SendPageProps> = ({ onNavigateHome }) => {
         onReconnectRoom={reconnectRoom}
         onRemovePeer={removePeerFromRoom}
         onAddFiles={addFiles}
+        onDownloadFile={downloadFile}
+        onDownloadAll={downloadAllZip}
         onSendMessage={sendChatMessage}
-        onSendVoice={sendVoiceMessage}
       />
     );
   }

@@ -57,8 +57,14 @@ export interface TransferStoreState {
   isHost: boolean;
   peers: PeerSnapshot[];
   chatMessages: ChatMessage[];
-  sendChatMessage: (content: string, folderRef?: string, attachedFiles?: File[]) => Promise<void>;
+  sendChatMessage: (
+    content: string,
+    folderRef?: string,
+    attachedFiles?: File[],
+    voice?: AudioRecordingResult,
+  ) => Promise<void>;
   sendVoiceMessage: (result: AudioRecordingResult) => Promise<void>;
+  downloadFile: (nameOrIndex: string | number) => void;
   disconnectRoom: () => void;
   reconnectRoom: () => Promise<void>;
   removePeerFromRoom: (peerId: string) => void;
@@ -191,7 +197,7 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       // If WebRTC is already connected, start sending the files over the data channel immediately
       if (activeWebRtc && activeWebRtc.isOpen && filtered.length > 0) {
         try {
-          const fileSources = createFileSources(updated);
+          const fileSources = createFileSources(filtered);
           const engine = new SenderEngine({
             sources: fileSources.map((f) => f.source),
             device: getLocalDeviceInfo(),
@@ -339,6 +345,36 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           },
           onReady: () => {
             set({ connectionState: 'connected' });
+            // Initialize ReceiverEngine on host so incoming files from peers can be received
+            const sinkFactory = createDefaultSinkFactory();
+            activeSinkFactory = sinkFactory;
+            const rxEngine = new ReceiverEngine({
+              transferId: get().sessionId || 'transfer',
+              sinkFactory,
+              channel: webrtc,
+              onMeta: (files, peerName) => {
+                set({
+                  incomingReviewFiles: files,
+                  peerDevice: peerName ? { name: peerName, platform: '', browser: '' } : null,
+                });
+                if (activeReceiverEngine) {
+                  void activeReceiverEngine.accept();
+                }
+              },
+              onUpdate: (snapshot) => {
+                set({ receiverSnapshot: snapshot });
+              },
+              onFileComplete: (file: ReceivedFile) => {
+                set((state) => ({
+                  receivedFiles: [...state.receivedFiles.filter((rf) => rf.meta.name !== file.meta.name), file],
+                }));
+              },
+              onError: (err) => {
+                set({ error: err });
+              },
+            });
+            activeReceiverEngine = rxEngine;
+
             // Both data channels open! If files were selected before connecting, start transfer
             const currentFiles = get().selectedFiles;
             if (currentFiles.length > 0) {
@@ -356,6 +392,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
             }
           },
           onControlMessage: (message: ControlMessage) => {
+            const rxTypes = ['hello', 'meta', 'file-begin', 'file-end', 'done'];
+            const txTypes = ['accept', 'resume-state', 'progress', 'file-verified', 'pause', 'resume', 'reject'];
+
             if (message.type === 'chat:message') {
               set((state) => ({
                 chatMessages: [
@@ -365,10 +404,12 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                     senderPeerId: message.senderPeerId,
                     senderName: message.senderName,
                     timestamp: message.timestamp,
-                    kind: message.files && message.files.length > 0 ? 'file' : 'text',
+                    kind: message.files && message.files.length > 0 ? 'file' : message.audioPayloadBase64 ? 'voice' : 'text',
                     text: message.content,
                     folderRef: message.folderRef,
                     files: message.files,
+                    audioPayloadBase64: message.audioPayloadBase64,
+                    audioDurationSeconds: message.durationSeconds,
                   },
                 ],
               }));
@@ -402,8 +443,15 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   },
                 ],
               }));
-            } else if (activeSenderEngine) {
+            } else if (rxTypes.includes(message.type) && activeReceiverEngine) {
+              activeReceiverEngine.handleControl(message);
+            } else if (txTypes.includes(message.type) && activeSenderEngine) {
               activeSenderEngine.handleControl(message);
+            }
+          },
+          onBinaryFrame: (frame: ArrayBuffer) => {
+            if (activeReceiverEngine) {
+              activeReceiverEngine.handleBinary(frame);
             }
           },
         });
@@ -568,12 +616,17 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   incomingReviewFiles: files,
                   peerDevice: peerName ? { name: peerName, platform: '', browser: '' } : null,
                 });
+                if (activeReceiverEngine) {
+                  void activeReceiverEngine.accept();
+                }
               },
               onUpdate: (snapshot) => {
                 set({ receiverSnapshot: snapshot });
               },
               onFileComplete: (file: ReceivedFile) => {
-                set((state) => ({ receivedFiles: [...state.receivedFiles, file] }));
+                set((state) => ({
+                  receivedFiles: [...state.receivedFiles.filter((rf) => rf.meta.name !== file.meta.name), file],
+                }));
               },
               onError: (err) => {
                 set({ error: err });
@@ -582,6 +635,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
             activeReceiverEngine = engine;
           },
           onControlMessage: (message: ControlMessage) => {
+            const rxTypes = ['hello', 'meta', 'file-begin', 'file-end', 'done'];
+            const txTypes = ['accept', 'resume-state', 'progress', 'file-verified', 'pause', 'resume', 'reject'];
+
             if (message.type === 'chat:message') {
               set((state) => ({
                 chatMessages: [
@@ -591,10 +647,12 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                     senderPeerId: message.senderPeerId,
                     senderName: message.senderName,
                     timestamp: message.timestamp,
-                    kind: message.files && message.files.length > 0 ? 'file' : 'text',
+                    kind: message.files && message.files.length > 0 ? 'file' : message.audioPayloadBase64 ? 'voice' : 'text',
                     text: message.content,
                     folderRef: message.folderRef,
                     files: message.files,
+                    audioPayloadBase64: message.audioPayloadBase64,
+                    audioDurationSeconds: message.durationSeconds,
                   },
                 ],
               }));
@@ -628,7 +686,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   },
                 ],
               }));
-            } else if (activeReceiverEngine) {
+            } else if (txTypes.includes(message.type) && activeSenderEngine) {
+              activeSenderEngine.handleControl(message);
+            } else if (rxTypes.includes(message.type) && activeReceiverEngine) {
               activeReceiverEngine.handleControl(message);
             }
           },
@@ -786,12 +846,17 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   incomingReviewFiles: files,
                   peerDevice: peerName ? { name: peerName, platform: '', browser: '' } : null,
                 });
+                if (activeReceiverEngine) {
+                  void activeReceiverEngine.accept();
+                }
               },
               onUpdate: (snapshot) => {
                 set({ receiverSnapshot: snapshot });
               },
               onFileComplete: (file: ReceivedFile) => {
-                set((state) => ({ receivedFiles: [...state.receivedFiles, file] }));
+                set((state) => ({
+                  receivedFiles: [...state.receivedFiles.filter((rf) => rf.meta.name !== file.meta.name), file],
+                }));
               },
               onError: (err) => {
                 set({ error: err });
@@ -800,6 +865,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
             activeReceiverEngine = engine;
           },
           onControlMessage: (message: ControlMessage) => {
+            const rxTypes = ['hello', 'meta', 'file-begin', 'file-end', 'done'];
+            const txTypes = ['accept', 'resume-state', 'progress', 'file-verified', 'pause', 'resume', 'reject'];
+
             if (message.type === 'chat:message') {
               set((state) => ({
                 chatMessages: [
@@ -809,10 +877,12 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                     senderPeerId: message.senderPeerId,
                     senderName: message.senderName,
                     timestamp: message.timestamp,
-                    kind: message.files && message.files.length > 0 ? 'file' : 'text',
+                    kind: message.files && message.files.length > 0 ? 'file' : message.audioPayloadBase64 ? 'voice' : 'text',
                     text: message.content,
                     folderRef: message.folderRef,
                     files: message.files,
+                    audioPayloadBase64: message.audioPayloadBase64,
+                    audioDurationSeconds: message.durationSeconds,
                   },
                 ],
               }));
@@ -846,7 +916,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   },
                 ],
               }));
-            } else if (activeReceiverEngine) {
+            } else if (txTypes.includes(message.type) && activeSenderEngine) {
+              activeSenderEngine.handleControl(message);
+            } else if (rxTypes.includes(message.type) && activeReceiverEngine) {
               activeReceiverEngine.handleControl(message);
             }
           },
@@ -923,7 +995,7 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       get().resetSession();
     },
 
-    sendChatMessage: async (content, folderRef, attachedFiles) => {
+    sendChatMessage: async (content, folderRef, attachedFiles, voice) => {
       const myName = get().deviceName || getLocalDeviceInfo().name;
       const myId = get().myPeerId || 'local';
       const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -935,17 +1007,30 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         lastModified: f.lastModified || Date.now(),
         relativePath: (f as { webkitRelativePath?: string }).webkitRelativePath || f.name,
       }));
+
+      let kind: 'text' | 'voice' | 'file' = 'text';
+      if (attachedMeta && attachedMeta.length > 0) {
+        kind = 'file';
+      } else if (voice) {
+        kind = 'voice';
+      }
+
       const newMsg: ChatMessage = {
         id: msgId,
         senderPeerId: myId,
         senderName: myName,
         timestamp: Date.now(),
-        kind: attachedMeta && attachedMeta.length > 0 ? 'file' : 'text',
-        text: content,
+        kind,
+        text: content || undefined,
         folderRef,
         files: attachedMeta,
+        audioPayloadBase64: voice?.base64,
+        audioDurationSeconds: voice?.durationSeconds,
       };
-      set((state) => ({ chatMessages: [...state.chatMessages, newMsg] }));
+      set((state) => ({
+        chatMessages: [...state.chatMessages, newMsg],
+        selectedFiles: attachedFiles ? [...state.selectedFiles, ...attachedFiles] : state.selectedFiles,
+      }));
 
       const controlMsg: ControlMessage = {
         type: 'chat:message',
@@ -953,9 +1038,11 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         senderPeerId: myId,
         senderName: myName,
         timestamp: Date.now(),
-        content,
+        content: content || '',
         folderRef,
         files: attachedMeta,
+        audioPayloadBase64: voice?.base64,
+        durationSeconds: voice?.durationSeconds,
       };
       if (activeWebRtc && activeWebRtc.isOpen) {
         activeWebRtc.sendControl(controlMsg);
@@ -1057,18 +1144,47 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       });
     },
 
-    downloadReceivedFile: (fileIndex: number) => {
-      const file = get().receivedFiles.find((f) => f.meta.index === fileIndex);
-      if (!file || !file.blob) return;
+    downloadFile: (nameOrIndex: string | number) => {
+      const { receivedFiles, selectedFiles } = get();
 
-      const url = URL.createObjectURL(file.blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.meta.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      // 1. Check receivedFiles
+      const received = receivedFiles.find(
+        (rf) =>
+          (typeof nameOrIndex === 'number' && rf.meta.index === nameOrIndex) ||
+          rf.meta.name === String(nameOrIndex),
+      );
+      if (received && received.blob) {
+        const url = URL.createObjectURL(received.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = received.meta.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+
+      // 2. Check selectedFiles (if the user sent it from this device)
+      const local = selectedFiles.find(
+        (sf, idx) =>
+          (typeof nameOrIndex === 'number' && idx === nameOrIndex) ||
+          sf.name === String(nameOrIndex),
+      );
+      if (local) {
+        const url = URL.createObjectURL(local);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = local.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    },
+
+    downloadReceivedFile: (fileIndex: number) => {
+      get().downloadFile(fileIndex);
     },
 
     downloadAllZip: () => {

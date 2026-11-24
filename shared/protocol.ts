@@ -181,9 +181,11 @@ export const controlMessageSchema = z.discriminatedUnion('type', [
     senderPeerId: z.string().min(1).max(64),
     senderName: z.string().min(1).max(80),
     timestamp: z.number().min(0),
-    content: z.string().min(1).max(10_000),
+    content: z.string().max(10_000),
     folderRef: z.string().max(1024).optional(),
     files: z.array(fileMetaSchema).max(MAX_FILES_PER_SESSION).optional(),
+    audioPayloadBase64: z.string().max(10_000_000).optional(),
+    durationSeconds: z.number().min(0).max(600).optional(),
   }),
   z.object({
     type: z.literal('chat:voice'),

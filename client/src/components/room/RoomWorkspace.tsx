@@ -42,10 +42,14 @@ interface RoomWorkspaceProps {
   onReconnectRoom: () => void;
   onRemovePeer?: (peerId: string) => void;
   onAddFiles?: (files: File[]) => void;
-  onDownloadFile?: (index: number) => void;
+  onDownloadFile?: (identifier: string | number) => void;
   onDownloadAll?: () => void;
-  onSendMessage: (text: string, folderRef?: string, files?: File[]) => void;
-  onSendVoice: (result: AudioRecordingResult) => void;
+  onSendMessage: (
+    text: string,
+    folderRef?: string,
+    files?: File[],
+    voice?: AudioRecordingResult,
+  ) => void;
 }
 
 export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({
@@ -72,7 +76,6 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({
   onDownloadFile,
   onDownloadAll,
   onSendMessage,
-  onSendVoice,
 }) => {
   const [activeTab, setActiveTab] = useState<'files' | 'chat'>('files');
   const [isQrOpen, setIsQrOpen] = useState(false);
@@ -392,7 +395,7 @@ export const RoomWorkspace: React.FC<RoomWorkspaceProps> = ({
             activeFolderRef={activeFolderRef}
             onClearFolderRef={() => setActiveFolderRef(undefined)}
             onSendMessage={onSendMessage}
-            onSendVoice={onSendVoice}
+            onDownloadFile={(fileName) => onDownloadFile?.(fileName)}
           />
         </div>
       </div>
