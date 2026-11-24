@@ -16,6 +16,8 @@ import { TransferProgress } from '../components/transfer/TransferProgress.js';
 import { TransferComplete } from '../components/transfer/TransferComplete.js';
 import { Button } from '../components/common/Button.js';
 import { ConnectionBadge } from '../components/common/Badge.js';
+import { RoomWorkspace } from '../components/room/RoomWorkspace.js';
+import type { SharedFileMeta } from '@shared/protocol.js';
 
 interface ReceivePageProps {
   onNavigateHome: () => void;
@@ -29,6 +31,8 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
   initialToken = '',
 }) => {
   const {
+    sessionId,
+    sessionCode,
     joinByCode,
     joinByInvite,
     connectionState,
@@ -38,6 +42,14 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
     incomingReviewFiles,
     receivedFiles,
     error,
+    isHost,
+    peers,
+    chatMessages,
+    deviceName,
+    sendChatMessage,
+    sendVoiceMessage,
+    disconnectRoom,
+    reconnectRoom,
     acceptTransfer,
     rejectTransfer,
     cancelTransfer,
@@ -116,15 +128,51 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
     setIsScannerOpen(false);
     setIsJoining(true);
     try {
-      if (decodedText.includes('#invite=')) {
-        const token = decodedText.split('#invite=')[1];
-        if (token) {
-          await joinByInvite(token);
-          return;
+      const trimmed = decodedText.trim();
+
+      // Check for URL containing join code or token in search or hash
+      try {
+        let url: URL | null = null;
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          url = new URL(trimmed);
+        } else if (trimmed.includes('?')) {
+          url = new URL(`http://dummy/${trimmed.slice(trimmed.indexOf('?'))}`);
+        } else if (trimmed.includes('#')) {
+          url = new URL(`http://dummy/?${trimmed.slice(trimmed.indexOf('#') + 1)}`);
         }
+
+        if (url) {
+          const search = url.searchParams;
+          const hashStr = url.hash.replace(/^#/, '');
+          const hashParams = new URLSearchParams(hashStr);
+
+          const token =
+            search.get('token') ||
+            hashParams.get('token') ||
+            search.get('invite') ||
+            hashParams.get('invite');
+          const code =
+            search.get('join') ||
+            hashParams.get('join') ||
+            search.get('code') ||
+            hashParams.get('code');
+
+          if (token) {
+            await joinByInvite(token);
+            return;
+          }
+          if (code && code.length === 6) {
+            setDigits(code.split(''));
+            await joinByCode(code);
+            return;
+          }
+        }
+      } catch {
+        // Fall back to pattern matching
       }
 
-      const match = decodedText.match(/\b\d{6}\b/);
+      // Check if text is directly a 6-digit code
+      const match = trimmed.match(/\b\d{6}\b/);
       if (match) {
         const code = match[0];
         setDigits(code.split(''));
@@ -132,11 +180,55 @@ export const ReceivePage: React.FC<ReceivePageProps> = ({
         return;
       }
 
-      await joinByInvite(decodedText);
+      // Fall back to treating as token
+      await joinByInvite(trimmed);
     } finally {
       setIsJoining(false);
     }
   };
+
+  if (connectionState === 'connected') {
+    const fileMetas: SharedFileMeta[] =
+      incomingReviewFiles ||
+      receivedFiles.map((rf) => rf.meta) ||
+      [];
+
+    return (
+      <>
+        {incomingReviewFiles && incomingReviewFiles.length > 0 && (
+          <ReceiverConsentModal
+            files={incomingReviewFiles}
+            peerName={peerDevice?.name || 'Sender'}
+            onAccept={acceptTransfer}
+            onReject={rejectTransfer}
+          />
+        )}
+        <RoomWorkspace
+          roomCode={sessionCode || fullCode}
+          sessionId={sessionId || ''}
+          isHost={isHost}
+          peers={peers}
+          files={fileMetas}
+          chatMessages={chatMessages}
+          qrDataUrl={null}
+          inviteUrl={null}
+          expiresAt={null}
+          connectionState={connectionState}
+          currentDeviceName={deviceName}
+          onNavigateHome={() => {
+            resetSession();
+            onNavigateHome();
+          }}
+          onDisconnectRoom={disconnectRoom}
+          onReconnectRoom={reconnectRoom}
+          onDownloadFile={downloadReceivedFile}
+          onDownloadAll={downloadAllZip}
+          onSendMessage={sendChatMessage}
+          onSendVoice={sendVoiceMessage}
+        />
+      </>
+    );
+  }
 
   if (receiverSnapshot && receiverSnapshot.phase === 'completed') {
     return (

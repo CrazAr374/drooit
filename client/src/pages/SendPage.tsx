@@ -16,6 +16,8 @@ import { TransferProgress } from '../components/transfer/TransferProgress.js';
 import { TransferComplete } from '../components/transfer/TransferComplete.js';
 import { Button } from '../components/common/Button.js';
 import { ConnectionBadge } from '../components/common/Badge.js';
+import { RoomWorkspace } from '../components/room/RoomWorkspace.js';
+import type { SharedFileMeta } from '@shared/protocol.js';
 
 interface SendPageProps {
   onNavigateHome: () => void;
@@ -28,6 +30,7 @@ export const SendPage: React.FC<SendPageProps> = ({ onNavigateHome }) => {
     removeFile,
     clearFiles,
     startSenderSession,
+    sessionId,
     sessionCode,
     sessionExpiresAt,
     inviteUrl,
@@ -37,6 +40,15 @@ export const SendPage: React.FC<SendPageProps> = ({ onNavigateHome }) => {
     peerDevice,
     senderSnapshot,
     error,
+    isHost,
+    peers,
+    chatMessages,
+    deviceName,
+    sendChatMessage,
+    sendVoiceMessage,
+    disconnectRoom,
+    reconnectRoom,
+    removePeerFromRoom,
     pauseTransfer,
     resumeTransfer,
     cancelTransfer,
@@ -90,6 +102,44 @@ export const SendPage: React.FC<SendPageProps> = ({ onNavigateHome }) => {
           onCancel={cancelTransfer}
         />
       </div>
+    );
+  }
+
+  if (step === 'pairing' && connectionState === 'connected') {
+    const fileMetas: SharedFileMeta[] = selectedFiles.map((f, i) => ({
+      index: i,
+      name: f.name,
+      size: f.size,
+      mime: f.type || 'application/octet-stream',
+      lastModified: f.lastModified || Date.now(),
+      relativePath: (f as { webkitRelativePath?: string }).webkitRelativePath || f.name,
+    }));
+
+    return (
+      <RoomWorkspace
+        roomCode={sessionCode || ''}
+        sessionId={sessionId || ''}
+        isHost={isHost}
+        peers={peers}
+        files={fileMetas}
+        chatMessages={chatMessages}
+        qrDataUrl={qrDataUrl}
+        inviteUrl={inviteUrl}
+        expiresAt={sessionExpiresAt}
+        connectionState={connectionState}
+        currentDeviceName={deviceName}
+        onNavigateHome={() => {
+          resetSession();
+          setStep('files');
+          onNavigateHome();
+        }}
+        onDisconnectRoom={disconnectRoom}
+        onReconnectRoom={reconnectRoom}
+        onRemovePeer={removePeerFromRoom}
+        onAddFiles={addFiles}
+        onSendMessage={sendChatMessage}
+        onSendVoice={sendVoiceMessage}
+      />
     );
   }
 

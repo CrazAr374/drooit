@@ -148,7 +148,7 @@ export class SignalingService {
         throw new AppError('INVALID_INPUT', 'This connection is already part of a session.', false);
       }
       const input = validateInput(sessionCreateSchema, payload);
-      const created = pairing.createSession(input.device, socket.id);
+      const created = pairing.createSession(input.device, socket.id, input.maxPeers);
       await socket.join(this.room(created.session.id));
       this.bindingBySocket.set(socket.id, { sessionId: created.session.id, role: 'sender' });
 
@@ -199,12 +199,16 @@ export class SignalingService {
       };
       ack?.(response);
 
-      if (session.sender.socketId) {
-        io.to(session.sender.socketId).emit('peer:joined', {
-          peer: session.receiver?.device ?? null,
-          role: 'receiver',
-          session: sessions.snapshot(session),
-        });
+      const allSockets = sessions.onlineSockets(session.id);
+      for (const targetSocketId of allSockets.all) {
+        if (targetSocketId !== socket.id) {
+          io.to(targetSocketId).emit('peer:joined', {
+            peer: session.receiver?.device ?? null,
+            peerId: socket.id,
+            role: 'receiver',
+            session: sessions.snapshot(session),
+          });
+        }
       }
       logger.info('Receiver joined', { sessionId: session.id });
     } catch (error) {
@@ -269,13 +273,25 @@ export class SignalingService {
       }
 
       const session = sessions.require(binding.sessionId);
-      const peerSocketId =
-        binding.role === 'sender' ? session.receiver?.socketId : session.sender.socketId;
+      let peerSocketId: string | null = null;
+
+      if (input.targetPeerId) {
+        const target = session.peers.get(input.targetPeerId);
+        peerSocketId = target?.socketId ?? null;
+      } else {
+        peerSocketId =
+          binding.role === 'sender' ? session.receiver?.socketId ?? null : session.sender.socketId;
+      }
+
       if (!peerSocketId) {
         throw new AppError('PEER_DISCONNECTED', 'The other device is not connected right now.', true);
       }
 
-      io.to(peerSocketId).emit('signal', { from: binding.role, payload: input.payload });
+      io.to(peerSocketId).emit('signal', {
+        from: binding.role,
+        fromPeerId: peer.id,
+        payload: input.payload,
+      });
       sessions.touch(session);
       ack?.({ ok: true });
     } catch (error) {
@@ -309,8 +325,15 @@ export class SignalingService {
         throw new AppError('UNAUTHORIZED', 'Session mismatch.', false);
       }
       const peer = pairing.authenticate(input.sessionId, binding.role, input.peerToken);
-      const { peerSocketId } = sessions.leave(input.sessionId, peer.role);
-      if (peerSocketId) {
+      const { peerId, otherSocketIds, peerSocketId } = sessions.leave(input.sessionId, peer.token);
+      for (const targetId of otherSocketIds) {
+        io.to(targetId).emit('peer:left', {
+          role: peer.role,
+          peerId: peerId ?? peer.id,
+          canResume: true,
+        });
+      }
+      if (peerSocketId && otherSocketIds.length === 0) {
         io.to(peerSocketId).emit('peer:left', { role: peer.role, canResume: true });
       }
       socket.leave(this.room(input.sessionId));
@@ -328,9 +351,10 @@ export class SignalingService {
 
     const detached = this.deps.sessions.detachSocket(socket.id);
     for (const entry of detached) {
-      if (entry.peerSocketId) {
-        this.deps.io.to(entry.peerSocketId).emit('peer:left', {
+      for (const peerSocketId of entry.otherSocketIds) {
+        this.deps.io.to(peerSocketId).emit('peer:left', {
           role: entry.role,
+          peerId: entry.peerId,
           canResume: true,
         });
       }

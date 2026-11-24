@@ -9,10 +9,10 @@ import type {
 } from '@shared/types.js';
 
 export interface SignalingEvents {
-  onPeerJoined?: (peer: DeviceInfo, session: SessionSnapshot) => void;
-  onSignal?: (payload: WireSignalPayload, from: SessionRole) => void;
+  onPeerJoined?: (peer: DeviceInfo, session: SessionSnapshot, peerId?: string) => void;
+  onSignal?: (payload: WireSignalPayload, from: SessionRole, fromPeerId?: string) => void;
   onSessionEnded?: (reason: string) => void;
-  onPeerLeft?: (role: SessionRole) => void;
+  onPeerLeft?: (role: SessionRole, peerId?: string) => void;
   onPeerResumed?: (peer: DeviceInfo, session: SessionSnapshot) => void;
   onDisconnect?: (reason: string) => void;
   onError?: (error: AppErrorPayload) => void;
@@ -78,20 +78,20 @@ export class SignalingClient {
         reject(new Error(message));
       });
 
-      this.socket.on('peer:joined', (data: { peer: DeviceInfo; session: SessionSnapshot }) => {
-        this.events.onPeerJoined?.(data.peer, data.session);
+      this.socket.on('peer:joined', (data: { peer: DeviceInfo; session: SessionSnapshot; peerId?: string }) => {
+        this.events.onPeerJoined?.(data.peer, data.session, data.peerId);
       });
 
-      this.socket.on('signal', (data: { from: SessionRole; payload: WireSignalPayload }) => {
-        this.events.onSignal?.(data.payload, data.from);
+      this.socket.on('signal', (data: { from: SessionRole; payload: WireSignalPayload; fromPeerId?: string }) => {
+        this.events.onSignal?.(data.payload, data.from, data.fromPeerId);
       });
 
       this.socket.on('session:ended', (data: { reason: string }) => {
         this.events.onSessionEnded?.(data.reason);
       });
 
-      this.socket.on('peer:left', (data: { role: SessionRole }) => {
-        this.events.onPeerLeft?.(data.role);
+      this.socket.on('peer:left', (data: { role: SessionRole; peerId?: string }) => {
+        this.events.onPeerLeft?.(data.role, data.peerId);
       });
 
       this.socket.on('peer:resumed', (data: { peer: DeviceInfo; session: SessionSnapshot }) => {
@@ -108,19 +108,21 @@ export class SignalingClient {
     return Boolean(this.socket?.connected);
   }
 
-  async createSession(device: DeviceInfo): Promise<{
+  async createSession(device: DeviceInfo, maxPeers = 8): Promise<{
     session: SessionSnapshot;
     peerToken: string;
     inviteToken: string;
     inviteFragment: string;
+    peerId?: string;
   }> {
     await this.connect();
     return new Promise((resolve, reject) => {
-      this.socket?.emit('session:create', { device }, (res: Ack<{
+      this.socket?.emit('session:create', { device, maxPeers }, (res: Ack<{
         session: SessionSnapshot;
         peerToken: string;
         inviteToken: string;
         inviteFragment: string;
+        peerId?: string;
       }>) => {
         if (!res) {
           reject(new Error('No response from signaling server'));
@@ -144,6 +146,7 @@ export class SignalingClient {
     session: SessionSnapshot;
     peerToken: string;
     role: SessionRole;
+    peerId?: string;
   }> {
     await this.connect();
     return new Promise((resolve, reject) => {
@@ -151,6 +154,7 @@ export class SignalingClient {
         session: SessionSnapshot;
         peerToken: string;
         role: SessionRole;
+        peerId?: string;
       }>) => {
         if (!res) {
           reject(new Error('No response from signaling server'));
@@ -198,6 +202,7 @@ export class SignalingClient {
   async sendSignal(params: {
     sessionId: string;
     peerToken: string;
+    targetPeerId?: string;
     payload: WireSignalPayload;
   }): Promise<void> {
     if (!this.socket?.connected) throw new Error('Not connected to signaling server');

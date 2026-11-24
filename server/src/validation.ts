@@ -19,7 +19,10 @@ const sessionIdSchema = z
   .length(32)
   .regex(/^[a-f0-9]{32}$/, 'Malformed session id');
 
-export const sessionCreateSchema = z.object({ device: deviceSchema });
+export const sessionCreateSchema = z.object({
+  device: deviceSchema,
+  maxPeers: z.number().int().min(2).max(16).default(2),
+});
 
 export const sessionJoinSchema = z.object({
   code: z
@@ -61,6 +64,7 @@ const candidateSchema = z.object({
 export const signalSchema = z.object({
   sessionId: sessionIdSchema,
   peerToken: tokenSchema,
+  targetPeerId: z.string().max(128).optional(),
   payload: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('description'), description: descriptionSchema }),
     z.object({ kind: z.literal('candidate'), candidate: candidateSchema }),

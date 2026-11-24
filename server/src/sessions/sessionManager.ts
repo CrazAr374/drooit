@@ -4,11 +4,12 @@ import {
   SESSION_CONNECTED_TTL_MS,
   SESSION_TTL_MS,
 } from '@shared/constants.js';
-import type { DeviceInfo, SessionRole, SessionSnapshot, SessionStatus } from '@shared/types.js';
+import type { DeviceInfo, PeerSnapshot, SessionRole, SessionSnapshot, SessionStatus } from '@shared/types.js';
 import { AppError } from '../errors.js';
 import { generatePairingCode, generateSessionId, generateToken, safeEqual } from '../security/tokens.js';
 
 export interface PeerRecord {
+  id: string;
   role: SessionRole;
   token: string;
   device: DeviceInfo;
@@ -27,8 +28,10 @@ export interface SessionRecord {
   absoluteExpiresAt: number;
   status: SessionStatus;
   joinAttempts: number;
+  maxPeers: number;
   sender: PeerRecord;
   receiver: PeerRecord | null;
+  peers: Map<string, PeerRecord>;
 }
 
 export type EndReason = 'expired' | 'cancelled' | 'abuse';
@@ -46,6 +49,7 @@ export interface SessionManagerOptions {
   connectedTtlMs?: number;
   absoluteTtlMs?: number;
   maxSessions?: number;
+  maxPeersPerSession?: number;
   now?: () => number;
   onEnded?: (event: SessionEndedEvent) => void;
 }
@@ -76,6 +80,7 @@ export class SessionManager {
   private readonly connectedTtlMs: number;
   private readonly absoluteTtlMs: number;
   private readonly maxSessions: number;
+  private readonly maxPeersPerSession: number;
   private readonly now: () => number;
   private readonly onEnded?: (event: SessionEndedEvent) => void;
 
@@ -84,6 +89,7 @@ export class SessionManager {
     this.connectedTtlMs = options.connectedTtlMs ?? SESSION_CONNECTED_TTL_MS;
     this.absoluteTtlMs = options.absoluteTtlMs ?? SESSION_ABSOLUTE_TTL_MS;
     this.maxSessions = options.maxSessions ?? 5000;
+    this.maxPeersPerSession = options.maxPeersPerSession ?? 8;
     this.now = options.now ?? Date.now;
     this.onEnded = options.onEnded;
     if (this.ttlMs <= 0 || this.connectedTtlMs <= 0 || this.absoluteTtlMs <= 0) {
@@ -95,7 +101,11 @@ export class SessionManager {
     return this.byId.size;
   }
 
-  create(device: DeviceInfo, socketId: string | null = null): CreateSessionResult {
+  get maxPeers(): number {
+    return this.maxPeersPerSession;
+  }
+
+  create(device: DeviceInfo, socketId: string | null = null, maxPeers = 2): CreateSessionResult {
     if (this.byId.size >= this.maxSessions) {
       this.sweep();
     }
@@ -105,7 +115,9 @@ export class SessionManager {
 
     const code = this.allocateCode();
     const now = this.now();
+    const senderId = generateToken();
     const sender: PeerRecord = {
+      id: senderId,
       role: 'sender',
       token: generateToken(),
       device,
@@ -113,6 +125,9 @@ export class SessionManager {
       connectedAt: socketId ? now : null,
       lastSeenAt: now,
     };
+    const peers = new Map<string, PeerRecord>();
+    peers.set(senderId, sender);
+
     const session: SessionRecord = {
       id: generateSessionId(),
       code,
@@ -123,8 +138,10 @@ export class SessionManager {
       absoluteExpiresAt: now + this.absoluteTtlMs,
       status: 'waiting',
       joinAttempts: 0,
+      maxPeers,
       sender,
       receiver: null,
+      peers,
     };
     this.byId.set(session.id, session);
     this.byCode.set(code, session.id);
@@ -158,7 +175,7 @@ export class SessionManager {
     return session;
   }
 
-  /** Validates the invite token (if supplied) and attaches a receiver. */
+  /** Validates the invite token (if supplied) and attaches a receiver/peer. */
   joinByCode(params: {
     code: string;
     inviteToken?: string;
@@ -169,12 +186,12 @@ export class SessionManager {
     if (!session) {
       throw new AppError('INVALID_CODE', 'No active session matches that code. Check the code and try again.', true);
     }
-    if (session.status !== 'waiting' || session.receiver) {
-      throw new AppError('SESSION_FULL', 'That session already has a connected receiver.', false);
-    }
     if (this.isExpired(session)) {
       this.end(session, 'expired');
       throw new AppError('SESSION_EXPIRED', 'This session has expired. Ask the sender for a new code.', true);
+    }
+    if (session.peers.size >= session.maxPeers) {
+      throw new AppError('SESSION_FULL', 'That session already has a connected receiver.', false);
     }
     if (params.inviteToken !== undefined) {
       if (session.inviteConsumed || !safeEqual(params.inviteToken, session.inviteToken)) {
@@ -184,7 +201,9 @@ export class SessionManager {
     }
 
     const now = this.now();
+    const receiverId = generateToken();
     const receiver: PeerRecord = {
+      id: receiverId,
       role: 'receiver',
       token: generateToken(),
       device: params.device,
@@ -193,7 +212,10 @@ export class SessionManager {
       lastSeenAt: now,
     };
     session.inviteConsumed = true;
-    session.receiver = receiver;
+    session.peers.set(receiverId, receiver);
+    if (!session.receiver) {
+      session.receiver = receiver;
+    }
     session.status = 'connected';
     session.expiresAt = Math.min(now + this.connectedTtlMs, session.absoluteExpiresAt);
     return { session, peerToken: receiver.token, receiver };
@@ -214,15 +236,19 @@ export class SessionManager {
     if (!session) {
       throw new AppError('SESSION_NOT_FOUND', 'That session no longer exists.', true);
     }
-    const peer = role === 'sender' ? session.sender : session.receiver;
-    if (!peer || !safeEqual(peer.token, token)) {
-      throw new AppError('UNAUTHORIZED', 'You are not authorised for this session.', false);
+    for (const peer of session.peers.values()) {
+      if (safeEqual(peer.token, token)) {
+        if (peer.role !== role) {
+          throw new AppError('UNAUTHORIZED', 'You are not authorised for this session.', false);
+        }
+        if (this.isExpired(session)) {
+          this.end(session, 'expired');
+          throw new AppError('SESSION_EXPIRED', 'This session has expired.', true);
+        }
+        return peer;
+      }
     }
-    if (this.isExpired(session)) {
-      this.end(session, 'expired');
-      throw new AppError('SESSION_EXPIRED', 'This session has expired.', true);
-    }
-    return peer;
+    throw new AppError('UNAUTHORIZED', 'You are not authorised for this session.', false);
   }
 
   /** Re-binds a socket after a refresh or network drop, using the peer token. */
@@ -238,10 +264,6 @@ export class SessionManager {
       throw new AppError('SESSION_NOT_FOUND', 'That session no longer exists.', true);
     }
     const peer = this.verifyPeer(params.sessionId, params.role, params.token);
-    if (peer.socketId && peer.socketId !== params.socketId) {
-      // The same peer reconnecting from a new socket replaces the stale binding.
-      peer.socketId = params.socketId;
-    }
     peer.socketId = params.socketId;
     peer.connectedAt = peer.connectedAt ?? this.now();
     peer.lastSeenAt = this.now();
@@ -263,7 +285,6 @@ export class SessionManager {
 
   /** Refreshes the connected-session deadline on activity, capped by the absolute TTL. */
   touch(session: SessionRecord): void {
-    if (!session.receiver) return;
     const now = this.now();
     session.expiresAt = Math.min(now + this.connectedTtlMs, session.absoluteExpiresAt);
   }
@@ -272,33 +293,35 @@ export class SessionManager {
   detachSocket(socketId: string): Array<{
     sessionId: string;
     code: string;
+    peerId: string;
     role: SessionRole;
+    otherSocketIds: string[];
     peerSocketId: string | null;
   }> {
     const detached: Array<{
       sessionId: string;
       code: string;
+      peerId: string;
       role: SessionRole;
+      otherSocketIds: string[];
       peerSocketId: string | null;
     }> = [];
     for (const session of this.byId.values()) {
-      if (session.sender.socketId === socketId) {
-        session.sender.socketId = null;
-        detached.push({
-          sessionId: session.id,
-          code: session.code,
-          role: 'sender',
-          peerSocketId: session.receiver?.socketId ?? null,
-        });
-      }
-      if (session.receiver?.socketId === socketId) {
-        session.receiver.socketId = null;
-        detached.push({
-          sessionId: session.id,
-          code: session.code,
-          role: 'receiver',
-          peerSocketId: session.sender.socketId,
-        });
+      for (const peer of session.peers.values()) {
+        if (peer.socketId === socketId) {
+          peer.socketId = null;
+          const otherSocketIds = [...session.peers.values()]
+            .map((p) => p.socketId)
+            .filter((id): id is string => id !== null && id !== socketId);
+          detached.push({
+            sessionId: session.id,
+            code: session.code,
+            peerId: peer.id,
+            role: peer.role,
+            otherSocketIds,
+            peerSocketId: otherSocketIds[0] ?? null,
+          });
+        }
       }
     }
     return detached;
@@ -307,7 +330,6 @@ export class SessionManager {
   cancel(sessionId: string, role: SessionRole): void {
     const session = this.require(sessionId);
     if (role !== 'sender') {
-      // Receivers may leave, but only the sender can destroy the session.
       const receiver = session.receiver;
       if (receiver) receiver.socketId = null;
       return;
@@ -315,15 +337,24 @@ export class SessionManager {
     this.end(session, 'cancelled');
   }
 
-  /** Explicitly leave without destroying the session (receiver can resume). */
-  leave(sessionId: string, role: SessionRole): { peerSocketId: string | null } {
+  /** Explicitly leave without destroying the session (peers can resume or leave). */
+  leave(sessionId: string, roleOrToken: string): { peerId: string | null; otherSocketIds: string[]; peerSocketId: string | null } {
     const session = this.get(sessionId);
-    if (!session) return { peerSocketId: null };
-    if (role === 'receiver' && session.receiver) {
-      session.receiver.socketId = null;
-      return { peerSocketId: session.sender.socketId };
+    if (!session) return { peerId: null, otherSocketIds: [], peerSocketId: null };
+    for (const [id, peer] of session.peers.entries()) {
+      if (safeEqual(peer.token, roleOrToken) || peer.role === roleOrToken || id === roleOrToken) {
+        peer.socketId = null;
+        session.peers.delete(id);
+        if (session.receiver?.id === id) {
+          session.receiver = [...session.peers.values()].find((p) => p.role === 'receiver') ?? null;
+        }
+        const otherSocketIds = [...session.peers.values()]
+          .map((p) => p.socketId)
+          .filter((s): s is string => s !== null);
+        return { peerId: id, otherSocketIds, peerSocketId: otherSocketIds[0] ?? null };
+      }
     }
-    return { peerSocketId: session.receiver?.socketId ?? null };
+    return { peerId: null, otherSocketIds: [], peerSocketId: null };
   }
 
   isExpired(session: SessionRecord): boolean {
@@ -344,22 +375,41 @@ export class SessionManager {
   }
 
   snapshot(session: SessionRecord): SessionSnapshot {
+    const peerList: PeerSnapshot[] = [...session.peers.values()].map((p) => ({
+      peerId: p.id,
+      device: p.device,
+      role: p.role,
+      joinedAt: p.connectedAt ?? session.createdAt,
+    }));
     return {
       id: session.id,
       code: session.code,
       status: session.status,
       createdAt: session.createdAt,
       expiresAt: session.expiresAt,
+      maxPeers: session.maxPeers,
+      peers: peerList,
+      host: {
+        peerId: session.sender.id,
+        device: session.sender.device,
+        role: 'sender',
+        joinedAt: session.sender.connectedAt ?? session.createdAt,
+      },
       sender: session.sender.device,
-      receiver: session.receiver?.device ?? null,
+      receiver: session.receiver?.device ?? (peerList.find((p) => p.role === 'receiver')?.device ?? null),
     };
   }
 
-  onlineSockets(sessionId: string): { sender: string | null; receiver: string | null } {
+  onlineSockets(sessionId: string): { all: string[]; sender: string | null; receiver: string | null } {
     const session = this.byId.get(sessionId);
+    if (!session) return { all: [], sender: null, receiver: null };
+    const all = [...session.peers.values()]
+      .map((p) => p.socketId)
+      .filter((s): s is string => s !== null);
     return {
-      sender: session?.sender.socketId ?? null,
-      receiver: session?.receiver?.socketId ?? null,
+      all,
+      sender: session.sender.socketId,
+      receiver: session.receiver?.socketId ?? null,
     };
   }
 

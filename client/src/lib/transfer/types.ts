@@ -113,7 +113,7 @@ export interface Sink {
 }
 
 export interface SinkFactory {
-  readonly kind: 'memory' | 'indexeddb' | 'directory';
+  readonly kind: 'memory' | 'indexeddb' | 'directory' | 'opfs';
   open(meta: SharedFileMeta): Promise<Sink>;
   /** Removes any persisted partial data for this transfer. */
   cleanup(): Promise<void>;

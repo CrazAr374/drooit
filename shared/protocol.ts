@@ -175,6 +175,31 @@ export const controlMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('pong'),
     t: z.number().min(0),
   }),
+  z.object({
+    type: z.literal('chat:message'),
+    id: z.string().min(1).max(64),
+    senderPeerId: z.string().min(1).max(64),
+    senderName: z.string().min(1).max(80),
+    timestamp: z.number().min(0),
+    content: z.string().min(1).max(10_000),
+    folderRef: z.string().max(1024).optional(),
+    files: z.array(fileMetaSchema).max(MAX_FILES_PER_SESSION).optional(),
+  }),
+  z.object({
+    type: z.literal('chat:voice'),
+    id: z.string().min(1).max(64),
+    senderPeerId: z.string().min(1).max(64),
+    senderName: z.string().min(1).max(80),
+    timestamp: z.number().min(0),
+    durationSeconds: z.number().min(0).max(600),
+    mime: z.string().max(128),
+    audioPayloadBase64: z.string().max(10_000_000),
+  }),
+  z.object({
+    type: z.literal('peer:leave'),
+    peerId: z.string().min(1).max(64),
+    reason: z.string().max(200).optional(),
+  }),
 ]);
 
 export type ControlMessage = z.infer<typeof controlMessageSchema>;

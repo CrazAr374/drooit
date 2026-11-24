@@ -22,6 +22,12 @@ export class MemorySink implements Sink {
     if (data.byteLength === 0) return;
     this.parts.push(data.slice());
     this.size += data.byteLength;
+
+    // Periodically compact chunk parts into intermediate Blob to reduce JS heap array retention
+    if (this.parts.length > 400) {
+      const intermediateBlob = new Blob(this.parts as BlobPart[]);
+      this.parts = [intermediateBlob as unknown as Uint8Array];
+    }
   }
 
   async read(offset: number, length: number): Promise<Uint8Array> {

@@ -4,6 +4,9 @@ import { zipSync } from 'fflate';
 import type {
   DeviceInfo,
   WireSignalPayload,
+  PeerSnapshot,
+  ChatMessage,
+  SessionSnapshot,
 } from '@shared/types.js';
 import type {
   ControlMessage,
@@ -17,9 +20,11 @@ import {
 import { SignalingClient } from '../lib/signaling/client.js';
 import { WebRtcConnection } from '../lib/webrtc/connection.js';
 import { createFileSources } from '../lib/transfer/fileSource.js';
-import { MemorySinkFactory } from '../lib/transfer/memorySink.js';
+import type { SinkFactory } from '../lib/transfer/types.js';
+import { createDefaultSinkFactory } from '../lib/transfer/sinkFactory.js';
 import { SenderEngine } from '../lib/transfer/sender.js';
 import { ReceiverEngine } from '../lib/transfer/receiver.js';
+import type { AudioRecordingResult } from '../lib/audio/recorder.js';
 import type {
   ReceivedFile,
   ReceiverSnapshot,
@@ -46,6 +51,17 @@ export interface TransferStoreState {
   connectionState: 'idle' | 'signaling' | 'connecting' | 'connected' | 'disconnected' | 'failed';
   connectionMode: 'unknown' | 'direct' | 'relay';
   error: { code: string; message: string } | null;
+
+  // Multi-Peer Room & Chat
+  myPeerId: string | null;
+  isHost: boolean;
+  peers: PeerSnapshot[];
+  chatMessages: ChatMessage[];
+  sendChatMessage: (content: string, folderRef?: string, attachedFiles?: File[]) => Promise<void>;
+  sendVoiceMessage: (result: AudioRecordingResult) => Promise<void>;
+  disconnectRoom: () => void;
+  reconnectRoom: () => Promise<void>;
+  removePeerFromRoom: (peerId: string) => void;
 
   // Sender Data
   selectedFiles: File[];
@@ -78,7 +94,7 @@ let activeSignaling: SignalingClient | null = null;
 let activeWebRtc: WebRtcConnection | null = null;
 let activeSenderEngine: SenderEngine | null = null;
 let activeReceiverEngine: ReceiverEngine | null = null;
-let activeSinkFactory: MemorySinkFactory | null = null;
+let activeSinkFactory: SinkFactory | null = null;
 let activePeerToken: string | null = null;
 
 function cleanupEngines(): void {
@@ -150,6 +166,12 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
     connectionMode: 'unknown',
     error: null,
 
+    // Multi-Peer Room & Chat
+    myPeerId: null,
+    isHost: false,
+    peers: [],
+    chatMessages: [],
+
     selectedFiles: [],
     senderSnapshot: null,
 
@@ -202,8 +224,32 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
 
         // Wire signaling events
         signaling.setEvents({
-          onPeerJoined: async (peer: DeviceInfo) => {
-            set({ peerDevice: peer, connectionState: 'connecting' });
+          onPeerJoined: async (peer: DeviceInfo, session: SessionSnapshot, peerId?: string) => {
+            const currentPeers = session?.peers || [
+              ...get().peers,
+              {
+                peerId: peerId || 'peer',
+                role: 'receiver',
+                device: peer,
+                isConnected: true,
+                joinedAt: Date.now(),
+              },
+            ];
+            const sysMsg: ChatMessage = {
+              id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              senderPeerId: 'system',
+              senderName: 'System',
+              timestamp: Date.now(),
+              kind: 'text',
+              text: `${peer.name || 'A new device'} joined the room.`,
+            };
+            set((state) => ({
+              peerDevice: peer,
+              peers: currentPeers,
+              chatMessages: [...state.chatMessages, sysMsg],
+              connectionState: 'connecting',
+            }));
+
             // Start WebRTC offer now that receiver is in the room
             try {
               await webrtc.init();
@@ -231,11 +277,21 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
               error: { code: 'SESSION_EXPIRED', message: `Session ended: ${reason}` },
             });
           },
-          onPeerLeft: () => {
-            set({
-              connectionState: 'disconnected',
-              error: { code: 'PEER_DISCONNECTED', message: 'Receiver disconnected' },
-            });
+          onPeerLeft: (_role, peerId) => {
+            const nextPeers = get().peers.filter((p) => (peerId ? p.peerId !== peerId : false));
+            const sysMsg: ChatMessage = {
+              id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              senderPeerId: 'system',
+              senderName: 'System',
+              timestamp: Date.now(),
+              kind: 'text',
+              text: 'A device left the room.',
+            };
+            set((state) => ({
+              peers: nextPeers,
+              chatMessages: [...state.chatMessages, sysMsg],
+              connectionState: nextPeers.length > 0 ? state.connectionState : 'disconnected',
+            }));
           },
           onError: (err) => {
             set({ error: err });
@@ -282,25 +338,72 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
             void engine.start();
           },
           onControlMessage: (message: ControlMessage) => {
-            if (activeSenderEngine) {
+            if (message.type === 'chat:message') {
+              set((state) => ({
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: message.id,
+                    senderPeerId: message.senderPeerId,
+                    senderName: message.senderName,
+                    timestamp: message.timestamp,
+                    kind: message.files && message.files.length > 0 ? 'file' : 'text',
+                    text: message.content,
+                    folderRef: message.folderRef,
+                    files: message.files,
+                  },
+                ],
+              }));
+            } else if (message.type === 'chat:voice') {
+              set((state) => ({
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: message.id,
+                    senderPeerId: message.senderPeerId,
+                    senderName: message.senderName,
+                    timestamp: message.timestamp,
+                    kind: 'voice',
+                    audioPayloadBase64: message.audioPayloadBase64,
+                    audioDurationSeconds: message.durationSeconds,
+                  },
+                ],
+              }));
+            } else if (message.type === 'peer:leave') {
+              set((state) => ({
+                peers: state.peers.filter((p) => p.peerId !== message.peerId),
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    senderPeerId: 'system',
+                    senderName: 'System',
+                    timestamp: Date.now(),
+                    kind: 'text',
+                    text: message.reason || 'A device left the room.',
+                  },
+                ],
+              }));
+            } else if (activeSenderEngine) {
               activeSenderEngine.handleControl(message);
             }
           },
         });
 
         // Create session on server
-        const result = await signaling.createSession(device);
+        const result = await signaling.createSession(device, 8);
         activePeerToken = result.peerToken;
 
-        // Construct invitation URL
+        // Construct invitation URL with clean query parameters
         const origin = typeof window !== 'undefined' ? window.location.origin : '';
-        const inviteUrl = `${origin}/#join=${result.session.code}&token=${result.inviteToken}`;
+        const inviteUrl = `${origin}/?join=${result.session.code}&token=${result.inviteToken}`;
         const qrDataUrl = await QRCode.toDataURL(inviteUrl, {
-          margin: 1,
-          width: 280,
+          margin: 2,
+          width: 320,
+          errorCorrectionLevel: 'M',
           color: {
-            dark: '#3B82F6',
-            light: '#0B1020',
+            dark: '#000000',
+            light: '#FFFFFF',
           },
         });
 
@@ -311,6 +414,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           inviteToken: result.inviteToken,
           inviteUrl,
           qrDataUrl,
+          isHost: true,
+          myPeerId: result.peerId || 'host',
+          peers: result.session.peers || [],
           connectionState: 'signaling',
         });
       } catch (err) {
@@ -346,6 +452,30 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
 
         // Wire signaling events
         signaling.setEvents({
+          onPeerJoined: (peer: DeviceInfo, session: SessionSnapshot, peerId?: string) => {
+            const currentPeers = session?.peers || [
+              ...get().peers,
+              {
+                peerId: peerId || 'peer',
+                role: 'receiver',
+                device: peer,
+                isConnected: true,
+                joinedAt: Date.now(),
+              },
+            ];
+            const sysMsg: ChatMessage = {
+              id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              senderPeerId: 'system',
+              senderName: 'System',
+              timestamp: Date.now(),
+              kind: 'text',
+              text: `${peer.name || 'A new device'} joined the room.`,
+            };
+            set((state) => ({
+              peers: currentPeers,
+              chatMessages: [...state.chatMessages, sysMsg],
+            }));
+          },
           onSignal: async (payload: WireSignalPayload) => {
             try {
               await webrtc.handleSignal(payload);
@@ -360,11 +490,21 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
               error: { code: 'SESSION_EXPIRED', message: `Session ended: ${reason}` },
             });
           },
-          onPeerLeft: () => {
-            set({
-              connectionState: 'disconnected',
-              error: { code: 'PEER_DISCONNECTED', message: 'Sender disconnected' },
-            });
+          onPeerLeft: (_role, peerId) => {
+            const nextPeers = get().peers.filter((p) => (peerId ? p.peerId !== peerId : false));
+            const sysMsg: ChatMessage = {
+              id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              senderPeerId: 'system',
+              senderName: 'System',
+              timestamp: Date.now(),
+              kind: 'text',
+              text: 'A device left the room.',
+            };
+            set((state) => ({
+              peers: nextPeers,
+              chatMessages: [...state.chatMessages, sysMsg],
+              connectionState: nextPeers.length > 0 ? state.connectionState : 'disconnected',
+            }));
           },
           onError: (err) => {
             set({ error: err });
@@ -398,7 +538,7 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           onReady: () => {
             set({ connectionState: 'connected' });
             // Both data channels open! Instantiate ReceiverEngine
-            const sinkFactory = new MemorySinkFactory();
+            const sinkFactory = createDefaultSinkFactory();
             activeSinkFactory = sinkFactory;
 
             const engine = new ReceiverEngine({
@@ -424,7 +564,53 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
             activeReceiverEngine = engine;
           },
           onControlMessage: (message: ControlMessage) => {
-            if (activeReceiverEngine) {
+            if (message.type === 'chat:message') {
+              set((state) => ({
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: message.id,
+                    senderPeerId: message.senderPeerId,
+                    senderName: message.senderName,
+                    timestamp: message.timestamp,
+                    kind: message.files && message.files.length > 0 ? 'file' : 'text',
+                    text: message.content,
+                    folderRef: message.folderRef,
+                    files: message.files,
+                  },
+                ],
+              }));
+            } else if (message.type === 'chat:voice') {
+              set((state) => ({
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: message.id,
+                    senderPeerId: message.senderPeerId,
+                    senderName: message.senderName,
+                    timestamp: message.timestamp,
+                    kind: 'voice',
+                    audioPayloadBase64: message.audioPayloadBase64,
+                    audioDurationSeconds: message.durationSeconds,
+                  },
+                ],
+              }));
+            } else if (message.type === 'peer:leave') {
+              set((state) => ({
+                peers: state.peers.filter((p) => p.peerId !== message.peerId),
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    senderPeerId: 'system',
+                    senderName: 'System',
+                    timestamp: Date.now(),
+                    kind: 'text',
+                    text: message.reason || 'A device left the room.',
+                  },
+                ],
+              }));
+            } else if (activeReceiverEngine) {
               activeReceiverEngine.handleControl(message);
             }
           },
@@ -447,6 +633,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           sessionCode: result.session.code,
           sessionExpiresAt: result.session.expiresAt,
           peerDevice: result.session.sender,
+          isHost: false,
+          myPeerId: result.peerId || 'receiver',
+          peers: result.session.peers || [],
           connectionState: 'connecting',
         });
       } catch (err) {
@@ -482,6 +671,30 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
 
         // Wire signaling events
         signaling.setEvents({
+          onPeerJoined: (peer: DeviceInfo, session: SessionSnapshot, peerId?: string) => {
+            const currentPeers = session?.peers || [
+              ...get().peers,
+              {
+                peerId: peerId || 'peer',
+                role: 'receiver',
+                device: peer,
+                isConnected: true,
+                joinedAt: Date.now(),
+              },
+            ];
+            const sysMsg: ChatMessage = {
+              id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              senderPeerId: 'system',
+              senderName: 'System',
+              timestamp: Date.now(),
+              kind: 'text',
+              text: `${peer.name || 'A new device'} joined the room.`,
+            };
+            set((state) => ({
+              peers: currentPeers,
+              chatMessages: [...state.chatMessages, sysMsg],
+            }));
+          },
           onSignal: async (payload: WireSignalPayload) => {
             try {
               await webrtc.handleSignal(payload);
@@ -496,11 +709,21 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
               error: { code: 'SESSION_EXPIRED', message: `Session ended: ${reason}` },
             });
           },
-          onPeerLeft: () => {
-            set({
-              connectionState: 'disconnected',
-              error: { code: 'PEER_DISCONNECTED', message: 'Sender disconnected' },
-            });
+          onPeerLeft: (_role, peerId) => {
+            const nextPeers = get().peers.filter((p) => (peerId ? p.peerId !== peerId : false));
+            const sysMsg: ChatMessage = {
+              id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              senderPeerId: 'system',
+              senderName: 'System',
+              timestamp: Date.now(),
+              kind: 'text',
+              text: 'A device left the room.',
+            };
+            set((state) => ({
+              peers: nextPeers,
+              chatMessages: [...state.chatMessages, sysMsg],
+              connectionState: nextPeers.length > 0 ? state.connectionState : 'disconnected',
+            }));
           },
           onError: (err) => {
             set({ error: err });
@@ -533,7 +756,7 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           },
           onReady: () => {
             set({ connectionState: 'connected' });
-            const sinkFactory = new MemorySinkFactory();
+            const sinkFactory = createDefaultSinkFactory();
             activeSinkFactory = sinkFactory;
 
             const engine = new ReceiverEngine({
@@ -559,7 +782,53 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
             activeReceiverEngine = engine;
           },
           onControlMessage: (message: ControlMessage) => {
-            if (activeReceiverEngine) {
+            if (message.type === 'chat:message') {
+              set((state) => ({
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: message.id,
+                    senderPeerId: message.senderPeerId,
+                    senderName: message.senderName,
+                    timestamp: message.timestamp,
+                    kind: message.files && message.files.length > 0 ? 'file' : 'text',
+                    text: message.content,
+                    folderRef: message.folderRef,
+                    files: message.files,
+                  },
+                ],
+              }));
+            } else if (message.type === 'chat:voice') {
+              set((state) => ({
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: message.id,
+                    senderPeerId: message.senderPeerId,
+                    senderName: message.senderName,
+                    timestamp: message.timestamp,
+                    kind: 'voice',
+                    audioPayloadBase64: message.audioPayloadBase64,
+                    audioDurationSeconds: message.durationSeconds,
+                  },
+                ],
+              }));
+            } else if (message.type === 'peer:leave') {
+              set((state) => ({
+                peers: state.peers.filter((p) => p.peerId !== message.peerId),
+                chatMessages: [
+                  ...state.chatMessages,
+                  {
+                    id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    senderPeerId: 'system',
+                    senderName: 'System',
+                    timestamp: Date.now(),
+                    kind: 'text',
+                    text: message.reason || 'A device left the room.',
+                  },
+                ],
+              }));
+            } else if (activeReceiverEngine) {
               activeReceiverEngine.handleControl(message);
             }
           },
@@ -580,6 +849,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           sessionCode: result.session.code,
           sessionExpiresAt: result.session.expiresAt,
           peerDevice: result.session.sender,
+          isHost: false,
+          myPeerId: result.peerId || 'receiver',
+          peers: result.session.peers || [],
           connectionState: 'connecting',
         });
       } catch (err) {
@@ -633,6 +905,114 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       get().resetSession();
     },
 
+    sendChatMessage: async (content, folderRef, attachedFiles) => {
+      const myName = get().deviceName || getLocalDeviceInfo().name;
+      const myId = get().myPeerId || 'local';
+      const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const attachedMeta: SharedFileMeta[] | undefined = attachedFiles?.map((f, idx) => ({
+        index: idx,
+        name: f.name,
+        size: f.size,
+        mime: f.type || 'application/octet-stream',
+        lastModified: f.lastModified || Date.now(),
+        relativePath: (f as { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      }));
+      const newMsg: ChatMessage = {
+        id: msgId,
+        senderPeerId: myId,
+        senderName: myName,
+        timestamp: Date.now(),
+        kind: attachedMeta && attachedMeta.length > 0 ? 'file' : 'text',
+        text: content,
+        folderRef,
+        files: attachedMeta,
+      };
+      set((state) => ({ chatMessages: [...state.chatMessages, newMsg] }));
+
+      const controlMsg: ControlMessage = {
+        type: 'chat:message',
+        id: msgId,
+        senderPeerId: myId,
+        senderName: myName,
+        timestamp: Date.now(),
+        content,
+        folderRef,
+        files: attachedMeta,
+      };
+      if (activeWebRtc && activeWebRtc.isOpen) {
+        activeWebRtc.sendControl(controlMsg);
+      }
+      if (attachedFiles && attachedFiles.length > 0) {
+        get().addFiles(attachedFiles);
+      }
+    },
+
+    sendVoiceMessage: async (result) => {
+      const myName = get().deviceName || getLocalDeviceInfo().name;
+      const myId = get().myPeerId || 'local';
+      const voiceId = `voice-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const newMsg: ChatMessage = {
+        id: voiceId,
+        senderPeerId: myId,
+        senderName: myName,
+        timestamp: Date.now(),
+        kind: 'voice',
+        audioPayloadBase64: result.base64,
+        audioDurationSeconds: result.durationSeconds,
+      };
+      set((state) => ({ chatMessages: [...state.chatMessages, newMsg] }));
+
+      const controlMsg: ControlMessage = {
+        type: 'chat:voice',
+        id: voiceId,
+        senderPeerId: myId,
+        senderName: myName,
+        timestamp: Date.now(),
+        durationSeconds: result.durationSeconds,
+        mime: result.mime,
+        audioPayloadBase64: result.base64,
+      };
+      if (activeWebRtc && activeWebRtc.isOpen) {
+        activeWebRtc.sendControl(controlMsg);
+      }
+    },
+
+    disconnectRoom: () => {
+      const { sessionId } = get();
+      if (activeSignaling && sessionId && activePeerToken) {
+        void activeSignaling.leaveSession({ sessionId, peerToken: activePeerToken });
+      }
+      if (activeWebRtc) {
+        activeWebRtc.close();
+        activeWebRtc = null;
+      }
+      set({ connectionState: 'disconnected' });
+    },
+
+    reconnectRoom: async () => {
+      const { role, sessionCode, inviteToken } = get();
+      if (role === 'sender') {
+        await get().startSenderSession();
+      } else if (inviteToken) {
+        await get().joinByInvite(inviteToken);
+      } else if (sessionCode) {
+        await get().joinByCode(sessionCode);
+      }
+    },
+
+    removePeerFromRoom: (peerId: string) => {
+      set((state) => ({
+        peers: state.peers.filter((p) => p.peerId !== peerId),
+      }));
+      const controlMsg: ControlMessage = {
+        type: 'peer:leave',
+        peerId,
+      };
+      if (activeWebRtc && activeWebRtc.isOpen) {
+        activeWebRtc.sendControl(controlMsg);
+      }
+    },
+
     resetSession: () => {
       cleanupEngines();
       set({
@@ -647,6 +1027,10 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         connectionState: 'idle',
         connectionMode: 'unknown',
         error: null,
+        myPeerId: null,
+        isHost: false,
+        peers: [],
+        chatMessages: [],
         selectedFiles: [],
         senderSnapshot: null,
         receiverSnapshot: null,

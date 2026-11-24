@@ -18,7 +18,7 @@ export function App() {
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Check URL parameters / hash fragments for invitations: e.g. #join=123456&token=xyz
+  // Check URL parameters / hash fragments for invitations: e.g. ?join=123456&token=xyz or #join=123456&token=xyz
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -27,8 +27,16 @@ export function App() {
       const hashParams = new URLSearchParams(hash);
       const searchParams = new URLSearchParams(window.location.search);
 
-      const code = hashParams.get('join') || searchParams.get('join');
-      const token = hashParams.get('token') || searchParams.get('token');
+      const code =
+        searchParams.get('join') ||
+        hashParams.get('join') ||
+        searchParams.get('code') ||
+        hashParams.get('code');
+      const token =
+        searchParams.get('token') ||
+        hashParams.get('token') ||
+        searchParams.get('invite') ||
+        hashParams.get('invite');
 
       if (token || code) {
         if (code) setInitialJoinCode(code);

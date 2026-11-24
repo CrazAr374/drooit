@@ -30,18 +30,29 @@ export interface DeviceInfo {
 
 export type SessionStatus = 'waiting' | 'connected' | 'cancelled' | 'expired';
 
+export interface PeerSnapshot {
+  peerId: string;
+  device: DeviceInfo;
+  role: SessionRole;
+  joinedAt: number;
+}
+
 export interface SessionSnapshot {
   id: string;
   code: string;
   status: SessionStatus;
   createdAt: number;
   expiresAt: number;
+  maxPeers?: number;
+  host?: PeerSnapshot;
+  peers?: PeerSnapshot[];
   sender: DeviceInfo | null;
   receiver: DeviceInfo | null;
 }
 
 export interface SessionCreateResult {
   session: SessionSnapshot;
+  peerId?: string;
   /** Secret held by the sender for reconnects / lifecycle events. Never in the QR. */
   peerToken: string;
   /** One-time secret embedded in the QR invitation. Consumed by the first successful join. */
@@ -54,6 +65,20 @@ export interface SessionJoinResult {
   session: SessionSnapshot;
   peerToken: string;
   role: SessionRole;
+  peerId?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderPeerId: string;
+  senderName: string;
+  timestamp: number;
+  kind: 'text' | 'voice' | 'file';
+  text?: string;
+  audioPayloadBase64?: string;
+  audioDurationSeconds?: number;
+  files?: SharedFileMeta[];
+  folderRef?: string;
 }
 
 export type Ack<T> = ({ ok: true } & T) | { ok: false; error: AppErrorPayload };

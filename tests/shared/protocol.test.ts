@@ -121,6 +121,39 @@ describe('file metadata', () => {
     });
   });
 
+  it('encodes and parses chat text and voice messages', () => {
+    const textMsg = {
+      type: 'chat:message' as const,
+      id: 'msg-1',
+      senderPeerId: 'peer-abc',
+      senderName: 'Atharva Laptop',
+      timestamp: 1700000000,
+      content: 'Hey, sending the project folders!',
+      folderRef: '/Design',
+    };
+    const parsedText = parseControlMessage(encodeControlMessage(textMsg));
+    expect(parsedText.ok).toBe(true);
+    if (parsedText.ok) {
+      expect(parsedText.message).toEqual(textMsg);
+    }
+
+    const voiceMsg = {
+      type: 'chat:voice' as const,
+      id: 'voice-1',
+      senderPeerId: 'peer-abc',
+      senderName: 'Atharva Laptop',
+      timestamp: 1700000001,
+      durationSeconds: 12.5,
+      mime: 'audio/webm;codecs=opus',
+      audioPayloadBase64: 'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQRChYECGFOAZwEAAAAAAA==',
+    };
+    const parsedVoice = parseControlMessage(encodeControlMessage(voiceMsg));
+    expect(parsedVoice.ok).toBe(true);
+    if (parsedVoice.ok) {
+      expect(parsedVoice.message).toEqual(voiceMsg);
+    }
+  });
+
   it('falls back to the filename and a generic MIME type', () => {
     const meta = toSharedFileMeta(
       { name: 'archive.zip', size: 0, type: '', lastModified: 0 },

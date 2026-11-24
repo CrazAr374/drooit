@@ -37,8 +37,8 @@ export interface CreatedSession {
 export class PairingService {
   constructor(private readonly sessions: SessionManager) {}
 
-  createSession(device: DeviceInput, socketId: string): CreatedSession {
-    const result = this.sessions.create(sanitizeDevice(device), socketId);
+  createSession(device: DeviceInput, socketId: string, maxPeers = 2): CreatedSession {
+    const result = this.sessions.create(sanitizeDevice(device), socketId, maxPeers);
     return {
       session: result.session,
       peerToken: result.peerToken,

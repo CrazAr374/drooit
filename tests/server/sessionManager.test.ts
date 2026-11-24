@@ -68,6 +68,37 @@ describe('SessionManager', () => {
     expect(snapshot.sender?.name).toBe(device.name);
   });
 
+  it('supports multi-peer rooms allowing multiple receivers up to maxPeers', () => {
+    const { sessions } = setup();
+    const created = sessions.create(device, 'sender-socket', 8);
+    expect(created.session.maxPeers).toBe(8);
+
+    const rx1 = sessions.joinByCode({
+      code: created.session.code,
+      device: { name: 'Device 1', platform: 'iOS', browser: 'Safari' },
+      socketId: 'socket-rx1',
+    });
+    expect(rx1.session.peers.size).toBe(2);
+
+    const rx2 = sessions.joinByCode({
+      code: created.session.code,
+      device: { name: 'Device 2', platform: 'Android', browser: 'Chrome' },
+      socketId: 'socket-rx2',
+    });
+    expect(rx2.session.peers.size).toBe(3);
+
+    const rx3 = sessions.joinByCode({
+      code: created.session.code,
+      device: { name: 'Device 3', platform: 'Windows', browser: 'Firefox' },
+      socketId: 'socket-rx3',
+    });
+    expect(rx3.session.peers.size).toBe(4);
+
+    const snapshot = sessions.snapshot(created.session);
+    expect(snapshot.peers?.length).toBe(4);
+    expect(snapshot.maxPeers).toBe(8);
+  });
+
   it('allocates distinct codes for concurrent sessions', () => {
     const { sessions } = setup();
     const codes = new Set<string>();
