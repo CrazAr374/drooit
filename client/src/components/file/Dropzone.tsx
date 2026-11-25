@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { UploadCloud, FolderUp, FileUp, Sparkles } from 'lucide-react';
 import { Button } from '../common/Button.js';
+import { getFilesFromDataTransfer } from '../../lib/transfer/fileDrop.js';
 
 interface DropzoneProps {
   onFilesSelected: (files: File[]) => void;
@@ -30,10 +31,10 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onFilesSelected, className =
     setIsDragOver(false);
   };
 
-  const handleDropFiles = (e: React.DragEvent) => {
+  const handleDropFiles = async (e: React.DragEvent) => {
     handleDrop(e);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const filesArray = Array.from(e.dataTransfer.files);
+    const filesArray = await getFilesFromDataTransfer(e.dataTransfer);
+    if (filesArray.length > 0) {
       onFilesSelected(filesArray);
     }
   };

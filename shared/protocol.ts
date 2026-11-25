@@ -224,8 +224,8 @@ export type ControlParseResult =
 
 /** Parse untrusted peer input. Never throws. */
 export function parseControlMessage(raw: unknown): ControlParseResult {
-  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 1_000_000) {
-    return { ok: false, error: 'Control message must be a non-empty string under 1 MB' };
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 16_000_000) {
+    return { ok: false, error: 'Control message must be a non-empty string under 16 MB' };
   }
   let json: unknown;
   try {

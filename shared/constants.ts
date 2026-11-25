@@ -20,9 +20,9 @@ export const BUFFER_HIGH_WATER = 4 * 1024 * 1024;
 /** Resume sending once the channel drains back to this level. */
 export const BUFFER_LOW_WATER = 1024 * 1024;
 
-export const MAX_FILES_PER_SESSION = 200;
-export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 * 1024;
-export const MAX_SESSION_BYTES = 100 * 1024 * 1024 * 1024;
+export const MAX_FILES_PER_SESSION = 65_535;
+export const MAX_FILE_SIZE_BYTES = Number.MAX_SAFE_INTEGER;
+export const MAX_SESSION_BYTES = Number.MAX_SAFE_INTEGER;
 
 export const DATA_CHANNEL_LABEL = 'drooit-data';
 export const CONTROL_CHANNEL_LABEL = 'drooit-control';

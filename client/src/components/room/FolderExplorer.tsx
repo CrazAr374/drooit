@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { Folder, FolderOpen, FileText, Download, Plus, MessageSquare } from 'lucide-react';
+import { Folder, FolderOpen, FolderUp, FileText, Download, Plus, MessageSquare } from 'lucide-react';
 import type { SharedFileMeta } from '@shared/protocol.js';
 import { formatBytes } from '@shared/format.js';
 import { Button } from '../common/Button.js';
+import { getFilesFromDataTransfer } from '../../lib/transfer/fileDrop.js';
 
 interface FolderExplorerProps {
   files: SharedFileMeta[];
   onAddFiles?: (files: File[]) => void;
-  onDownloadFile?: (index: number) => void;
+  onDownloadFile?: (identifier: string | number) => void;
   onDownloadAll?: () => void;
   onSelectFolderForChat?: (folderPath: string) => void;
 }
@@ -20,7 +21,9 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
   onSelectFolderForChat,
 }) => {
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
 
   // Group files by top-level or relative folder
   const folders: Record<string, SharedFileMeta[]> = {};
@@ -44,20 +47,52 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
   const handleFilesAdded = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       onAddFiles?.(Array.from(e.target.files));
+      e.target.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!onAddFiles) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (!onAddFiles) return;
+    const dropped = await getFilesFromDataTransfer(e.dataTransfer);
+    if (dropped.length > 0) {
+      onAddFiles(dropped);
     }
   };
 
   return (
-    <div className="flex flex-col h-full rounded-xl bg-card border border-border drooit-card overflow-hidden">
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`flex flex-col h-full rounded-xl bg-card border transition-colors drooit-card overflow-hidden ${
+        isDragOver ? 'border-yellow-400 bg-yellow-400/5' : 'border-border'
+      }`}
+    >
       {/* Header */}
-      <div className="px-3.5 py-2.5 border-b border-border bg-secondary/40 flex items-center justify-between">
+      <div className="px-3.5 py-2.5 border-b border-border bg-secondary/40 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Folder className="w-4 h-4 text-yellow-500 dark:text-yellow-400" />
           <h4 className="text-xs font-bold font-display uppercase tracking-wider text-foreground">
             Shared Files & Folders ({files.length})
           </h4>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {onDownloadAll && files.length > 0 && (
             <Button
               variant="outline"
@@ -79,6 +114,16 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
                 className="hidden"
                 onChange={handleFilesAdded}
               />
+              <input
+                ref={folderInputRef}
+                type="file"
+                // @ts-expect-error webkitdirectory is standard in browsers but non-standard in TS DOM types
+                webkitdirectory=""
+                directory=""
+                multiple
+                className="hidden"
+                onChange={handleFilesAdded}
+              />
               <Button
                 variant="secondary"
                 size="sm"
@@ -87,6 +132,15 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
               >
                 <Plus className="w-3 h-3 text-foreground" />
                 <span>Add Files</span>
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => folderInputRef.current?.click()}
+                className="text-[11px] h-7 px-2.5 gap-1 rounded-md"
+              >
+                <FolderUp className="w-3 h-3 text-yellow-500 dark:text-yellow-400" />
+                <span>Add Folder</span>
               </Button>
             </>
           )}
@@ -98,7 +152,9 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
         {files.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-4 text-muted-foreground">
             <p className="text-xs font-medium">No files in room.</p>
-            <p className="text-[11px] mt-1 text-muted-foreground/80">Add files or folders to share with the room.</p>
+            <p className="text-[11px] mt-1 text-muted-foreground/80">
+              Drag & drop or use Add Files / Add Folder above — no file size or count limits.
+            </p>
           </div>
         ) : (
           <>
@@ -140,7 +196,7 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
                     <div className="p-2 space-y-1 bg-background/50 border-t border-border/50">
                       {folderFiles.map((file) => (
                         <div
-                          key={file.index}
+                          key={`${file.index}-${file.relativePath}`}
                           className="flex items-center justify-between px-2.5 py-1.5 rounded-md hover:bg-secondary/70 transition-colors text-xs"
                         >
                           <div className="flex items-center gap-2 truncate">
@@ -152,7 +208,7 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
                           </div>
                           {onDownloadFile && (
                             <button
-                              onClick={() => onDownloadFile(file.index)}
+                              onClick={() => onDownloadFile(file.name)}
                               className="p-1 text-muted-foreground hover:text-foreground shrink-0"
                               title="Download file"
                             >
@@ -170,7 +226,7 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
             {/* Root Files */}
             {rootFiles.map((file) => (
               <div
-                key={file.index}
+                key={`${file.index}-${file.name}`}
                 className="flex items-center justify-between px-3 py-2 rounded-lg border border-border bg-secondary/30 hover:bg-secondary/60 transition-colors text-xs"
               >
                 <div className="flex items-center gap-2 truncate">
@@ -182,7 +238,7 @@ export const FolderExplorer: React.FC<FolderExplorerProps> = ({
                 </div>
                 {onDownloadFile && (
                   <button
-                    onClick={() => onDownloadFile(file.index)}
+                    onClick={() => onDownloadFile(file.name)}
                     className="p-1 text-muted-foreground hover:text-foreground shrink-0"
                     title="Download file"
                   >

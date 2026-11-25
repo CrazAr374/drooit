@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Send, Paperclip, Folder, File as FileIcon, X, Download, Mic } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Send, Paperclip, Folder, FolderUp, File as FileIcon, X, Download, Mic } from 'lucide-react';
 import type { ChatMessage } from '@shared/types.js';
 import { VoiceRecorderButton } from './VoiceRecorderButton.js';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer.js';
 import type { AudioRecordingResult } from '../../lib/audio/recorder.js';
 import { formatBytes } from '@shared/format.js';
+import { getFilesFromDataTransfer } from '../../lib/transfer/fileDrop.js';
 
 interface ChatStreamProps {
   messages: ChatMessage[];
@@ -31,8 +32,10 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
   const [inputText, setInputText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [stagedVoice, setStagedVoice] = useState<AudioRecordingResult | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -64,9 +67,8 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
       const selected = Array.from(e.target.files);
       setAttachedFiles((prev) => [...prev, ...selected]);
     }
-    // Reset file input so the same file can be selected again if removed
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (e.target) {
+      e.target.value = '';
     }
   };
 
@@ -74,16 +76,74 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
     setAttachedFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const removeAttachedFolder = (folderName: string) => {
+    setAttachedFiles((prev) =>
+      prev.filter((f) => {
+        const rel = (f as { webkitRelativePath?: string }).webkitRelativePath || '';
+        return !rel.startsWith(`${folderName}/`);
+      }),
+    );
+  };
+
   const handleVoiceRecorded = (result: AudioRecordingResult) => {
-    // If files or text are already present, stage voice alongside them;
-    // Otherwise stage voice so user can add text/files or send immediately
     setStagedVoice(result);
   };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const dropped = await getFilesFromDataTransfer(e.dataTransfer);
+    if (dropped.length > 0) {
+      setAttachedFiles((prev) => [...prev, ...dropped]);
+    }
+  };
+
+  // Group staged files into folders vs standalone files for clean preview
+  const stagedGroups = useMemo(() => {
+    const folders = new Map<string, { count: number; totalBytes: number }>();
+    const standalone: Array<{ file: File; index: number }> = [];
+
+    attachedFiles.forEach((file, index) => {
+      const rel = (file as { webkitRelativePath?: string }).webkitRelativePath || '';
+      const slashIdx = rel.indexOf('/');
+      if (slashIdx > 0) {
+        const topFolder = rel.slice(0, slashIdx);
+        const existing = folders.get(topFolder) || { count: 0, totalBytes: 0 };
+        existing.count += 1;
+        existing.totalBytes += file.size;
+        folders.set(topFolder, existing);
+      } else {
+        standalone.push({ file, index });
+      }
+    });
+
+    return { folders: Array.from(folders.entries()), standalone };
+  }, [attachedFiles]);
 
   const canSend = Boolean(inputText.trim() || attachedFiles.length > 0 || stagedVoice);
 
   return (
-    <div className="flex flex-col h-full rounded-xl bg-card border border-border drooit-card overflow-hidden">
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`flex flex-col h-full rounded-xl bg-card border transition-colors drooit-card overflow-hidden ${
+        isDragOver ? 'border-yellow-400 bg-yellow-400/5' : 'border-border'
+      }`}
+    >
       {/* Header */}
       <div className="px-3.5 py-2.5 border-b border-border bg-secondary/40 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -109,7 +169,7 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
           <div className="h-full flex flex-col items-center justify-center text-center p-4 text-muted-foreground">
             <p className="text-xs font-medium">No messages yet in this room.</p>
             <p className="text-[11px] mt-1 text-muted-foreground/80">
-              Send a text, attach files, or record a voice note below.
+              Send a text, attach files or folders, or record a voice note below.
             </p>
           </div>
         ) : (
@@ -172,10 +232,10 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
 
                   {/* Attached Files in Chat */}
                   {msg.files && msg.files.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
+                    <div className="space-y-1.5 pt-1 max-h-56 overflow-y-auto pr-0.5">
                       {msg.files.map((file) => (
                         <div
-                          key={file.index}
+                          key={`${file.index}-${file.relativePath}`}
                           className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-card/90 border border-border shadow-xs"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -183,7 +243,11 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
                               <FileIcon className="w-4 h-4" />
                             </span>
                             <div className="truncate">
-                              <p className="font-semibold text-[11px] truncate text-foreground">{file.name}</p>
+                              <p className="font-semibold text-[11px] truncate text-foreground">
+                                {file.relativePath && file.relativePath !== file.name
+                                  ? file.relativePath
+                                  : file.name}
+                              </p>
                               <p className="text-[10px] text-muted-foreground font-mono">{formatBytes(file.size)}</p>
                             </div>
                           </div>
@@ -228,10 +292,32 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
             </div>
           )}
 
-          {/* Staged Attached Files Chips */}
-          {attachedFiles.map((file, i) => (
+          {/* Staged Folder Chips */}
+          {stagedGroups.folders.map(([folderName, stats]) => (
             <div
-              key={i}
+              key={folderName}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-card border border-yellow-400/40 text-[11px] shrink-0 text-foreground"
+            >
+              <Folder className="w-3.5 h-3.5 text-yellow-500" />
+              <span className="truncate max-w-[140px] font-semibold">{folderName}/</span>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                ({stats.count} files • {formatBytes(stats.totalBytes)})
+              </span>
+              <button
+                type="button"
+                onClick={() => removeAttachedFolder(folderName)}
+                className="text-muted-foreground hover:text-destructive transition-colors ml-0.5"
+                title={`Remove folder ${folderName}`}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+
+          {/* Staged Standalone File Chips */}
+          {stagedGroups.standalone.map(({ file, index }) => (
+            <div
+              key={`${index}-${file.name}`}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-card border border-border text-[11px] shrink-0 text-foreground"
             >
               <FileIcon className="w-3.5 h-3.5 text-yellow-500" />
@@ -239,7 +325,7 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
               <span className="text-[10px] text-muted-foreground font-mono">({formatBytes(file.size)})</span>
               <button
                 type="button"
-                onClick={() => removeAttachedFile(i)}
+                onClick={() => removeAttachedFile(index)}
                 className="text-muted-foreground hover:text-destructive transition-colors ml-0.5"
                 title="Remove file"
               >
@@ -251,10 +337,20 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
       )}
 
       {/* Footer Controls & Input */}
-      <form onSubmit={handleSend} className="p-2.5 border-t border-border bg-secondary/20 flex items-center gap-2">
+      <form onSubmit={handleSend} className="p-2.5 border-t border-border bg-secondary/20 flex items-center gap-1.5 sm:gap-2">
         <input
           ref={fileInputRef}
           type="file"
+          multiple
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          // @ts-expect-error webkitdirectory is standard in browsers but non-standard in TS DOM types
+          webkitdirectory=""
+          directory=""
           multiple
           className="hidden"
           onChange={handleFileSelect}
@@ -265,9 +361,19 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
           type="button"
           onClick={() => fileInputRef.current?.click()}
           title="Attach files to message"
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
+          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 cursor-pointer"
         >
           <Paperclip className="w-4 h-4" />
+        </button>
+
+        {/* Attach Folder Button */}
+        <button
+          type="button"
+          onClick={() => folderInputRef.current?.click()}
+          title="Attach folder to message"
+          className="p-2 rounded-lg text-muted-foreground hover:text-yellow-500 hover:bg-secondary transition-colors shrink-0 cursor-pointer"
+        >
+          <FolderUp className="w-4 h-4" />
         </button>
 
         {/* Text Input */}
@@ -284,7 +390,7 @@ export const ChatStream: React.FC<ChatStreamProps> = ({
               ? `Message about ${activeFolderRef}...`
               : 'Type a message...'
           }
-          className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-yellow-400"
+          className="flex-1 min-w-0 bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-yellow-400"
         />
 
         {/* Voice Note Recorder Button */}
