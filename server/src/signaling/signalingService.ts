@@ -157,12 +157,14 @@ export class SignalingService {
         peerToken: string;
         inviteToken: string;
         inviteFragment: string;
+        peerId: string;
       }> = {
         ok: true,
         session: sessions.snapshot(created.session),
         peerToken: created.peerToken,
         inviteToken: created.inviteToken,
         inviteFragment: created.inviteFragment,
+        peerId: created.session.sender.id,
       };
       ack?.(response);
       logger.info('Session created', {
@@ -182,7 +184,7 @@ export class SignalingService {
         throw new AppError('INVALID_INPUT', 'This connection is already part of a session.', false);
       }
       const input = validateInput(sessionJoinSchema, payload);
-      const { session, peerToken } = pairing.joinSession({
+      const { session, peerToken, receiver } = pairing.joinSession({
         code: input.code,
         inviteToken: input.inviteToken,
         device: input.device,
@@ -191,11 +193,12 @@ export class SignalingService {
       await socket.join(this.room(session.id));
       this.bindingBySocket.set(socket.id, { sessionId: session.id, role: 'receiver' });
 
-      const response: Ack<{ session: SessionSnapshot; peerToken: string; role: SessionRole }> = {
+      const response: Ack<{ session: SessionSnapshot; peerToken: string; role: SessionRole; peerId: string }> = {
         ok: true,
         session: sessions.snapshot(session),
         peerToken,
         role: 'receiver',
+        peerId: receiver.id,
       };
       ack?.(response);
 
@@ -203,8 +206,8 @@ export class SignalingService {
       for (const targetSocketId of allSockets.all) {
         if (targetSocketId !== socket.id) {
           io.to(targetSocketId).emit('peer:joined', {
-            peer: session.receiver?.device ?? null,
-            peerId: socket.id,
+            peer: receiver.device,
+            peerId: receiver.id,
             role: 'receiver',
             session: sessions.snapshot(session),
           });

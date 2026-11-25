@@ -42,6 +42,8 @@ export function App() {
         if (code) setInitialJoinCode(code);
         if (token) setInitialJoinToken(token);
         setActiveTab('receive');
+        // Clean URL query/hash so refreshing (F5) does not re-trigger stale invite tokens
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
     };
 
@@ -50,6 +52,15 @@ export function App() {
     return () => window.removeEventListener('hashchange', parseUrlInvitation);
   }, []);
 
+  const handleNavigateHome = () => {
+    setInitialJoinCode('');
+    setInitialJoinToken('');
+    setActiveTab('home');
+    if (typeof window !== 'undefined' && (window.location.search || window.location.hash)) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground transition-colors duration-200">
       {/* Navigation Header */}
@@ -57,7 +68,7 @@ export function App() {
         onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
         onOpenPrivacy={() => setIsPrivacyOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onNavigateHome={() => setActiveTab('home')}
+        onNavigateHome={handleNavigateHome}
       />
 
       {/* Main Content Area */}
@@ -72,12 +83,12 @@ export function App() {
         )}
 
         {activeTab === 'send' && (
-          <SendPage onNavigateHome={() => setActiveTab('home')} />
+          <SendPage onNavigateHome={handleNavigateHome} />
         )}
 
         {activeTab === 'receive' && (
           <ReceivePage
-            onNavigateHome={() => setActiveTab('home')}
+            onNavigateHome={handleNavigateHome}
             initialCode={initialJoinCode}
             initialToken={initialJoinToken}
           />

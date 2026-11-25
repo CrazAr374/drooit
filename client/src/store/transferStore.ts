@@ -19,8 +19,9 @@ import {
 } from '../lib/device.js';
 import { SignalingClient } from '../lib/signaling/client.js';
 import { WebRtcConnection } from '../lib/webrtc/connection.js';
+import { MeshManager } from '../lib/webrtc/meshManager.js';
 import { createFileSources } from '../lib/transfer/fileSource.js';
-import type { SinkFactory } from '../lib/transfer/types.js';
+import type { SinkFactory, TransferChannel } from '../lib/transfer/types.js';
 import { createDefaultSinkFactory } from '../lib/transfer/sinkFactory.js';
 import { SenderEngine } from '../lib/transfer/sender.js';
 import { ReceiverEngine } from '../lib/transfer/receiver.js';
@@ -98,10 +99,16 @@ export interface TransferStoreState {
 // Active singleton instances for signaling, connection, and transfer engines
 let activeSignaling: SignalingClient | null = null;
 let activeWebRtc: WebRtcConnection | null = null;
+let activeMesh: MeshManager | null = null;
 let activeSenderEngine: SenderEngine | null = null;
 let activeReceiverEngine: ReceiverEngine | null = null;
+const hostReceiverEngines = new Map<string, ReceiverEngine>();
 let activeSinkFactory: SinkFactory | null = null;
 let activePeerToken: string | null = null;
+
+function getActiveChannel(): TransferChannel | null {
+  return activeMesh ?? activeWebRtc;
+}
 
 function cleanupEngines(): void {
   if (activeSenderEngine) {
@@ -112,9 +119,17 @@ function cleanupEngines(): void {
     activeReceiverEngine.dispose();
     activeReceiverEngine = null;
   }
+  for (const rx of hostReceiverEngines.values()) {
+    rx.dispose();
+  }
+  hostReceiverEngines.clear();
   if (activeSinkFactory) {
     void activeSinkFactory.cleanup();
     activeSinkFactory = null;
+  }
+  if (activeMesh) {
+    activeMesh.closeAll();
+    activeMesh = null;
   }
   if (activeWebRtc) {
     activeWebRtc.close();
@@ -195,13 +210,14 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       set({ selectedFiles: updated });
 
       // If WebRTC is already connected, start sending the files over the data channel immediately
-      if (activeWebRtc && activeWebRtc.isOpen && filtered.length > 0) {
+      const channel = getActiveChannel();
+      if (channel && channel.isOpen && filtered.length > 0) {
         try {
           const fileSources = createFileSources(filtered);
           const engine = new SenderEngine({
             sources: fileSources.map((f) => f.source),
             device: getLocalDeviceInfo(),
-            channel: activeWebRtc,
+            channel,
             onUpdate: (snapshot) => {
               set({ senderSnapshot: snapshot });
             },
@@ -240,16 +256,17 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         const signaling = new SignalingClient();
         activeSignaling = signaling;
 
-        const webrtc = new WebRtcConnection(true);
-        activeWebRtc = webrtc;
+        const mesh = new MeshManager('host');
+        activeMesh = mesh;
 
         // Wire signaling events
         signaling.setEvents({
           onPeerJoined: async (peer: DeviceInfo, session: SessionSnapshot, peerId?: string) => {
+            const targetId = peerId || peer.name || `peer-${Date.now()}`;
             const currentPeers = session?.peers || [
               ...get().peers,
               {
-                peerId: peerId || 'peer',
+                peerId: targetId,
                 role: 'receiver',
                 device: peer,
                 isConnected: true,
@@ -268,13 +285,13 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
               peerDevice: peer,
               peers: currentPeers,
               chatMessages: [...state.chatMessages, sysMsg],
-              connectionState: 'connecting',
+              connectionState: state.connectionState === 'connected' ? 'connected' : 'connecting',
             }));
 
-            // Start WebRTC offer now that receiver is in the room
+            // Start a dedicated WebRTC connection & offer for this newly joined peer
             try {
-              await webrtc.init();
-              await webrtc.startOffer();
+              const conn = await mesh.addPeer(targetId, true);
+              await conn.startOffer();
             } catch (err) {
               set({
                 error: {
@@ -284,9 +301,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
               });
             }
           },
-          onSignal: async (payload: WireSignalPayload) => {
+          onSignal: async (payload: WireSignalPayload, _from, fromPeerId?: string) => {
             try {
-              await webrtc.handleSignal(payload);
+              await mesh.handleSignal(fromPeerId || 'peer', payload);
             } catch (err) {
               // eslint-disable-next-line no-console
               console.error('Error handling remote signal:', err);
@@ -299,6 +316,14 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
             });
           },
           onPeerLeft: (_role, peerId) => {
+            if (peerId) {
+              mesh.removePeer(peerId);
+              const rx = hostReceiverEngines.get(peerId);
+              if (rx) {
+                rx.dispose();
+                hostReceiverEngines.delete(peerId);
+              }
+            }
             const nextPeers = get().peers.filter((p) => (peerId ? p.peerId !== peerId : false));
             const sysMsg: ChatMessage = {
               id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -319,47 +344,50 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
           },
         });
 
-        // Wire WebRTC events
-        webrtc.setEvents({
-          onSignalNeeded: (payload) => {
+        // Wire multi-peer MeshManager events
+        mesh.setEvents({
+          onSignalNeeded: (targetPeerId, payload) => {
             const { sessionId } = get();
             if (sessionId && activePeerToken) {
               void signaling.sendSignal({
                 sessionId,
                 peerToken: activePeerToken,
+                targetPeerId,
                 payload,
               });
             }
           },
-          onConnectionStateChange: (state) => {
-            if (state === 'connected') {
-              set({ connectionState: 'connected' });
-            } else if (state === 'failed' || state === 'closed') {
-              set({ connectionState: 'failed' });
-            } else if (state === 'disconnected') {
+          onPeerModeChange: (_peerId, mode) => {
+            set({ connectionMode: mode });
+          },
+          onPeerClose: (peerId) => {
+            const rx = hostReceiverEngines.get(peerId);
+            if (rx) {
+              rx.dispose();
+              hostReceiverEngines.delete(peerId);
+            }
+            if (mesh.connectedPeerCount === 0) {
               set({ connectionState: 'disconnected' });
             }
           },
-          onModeChange: (mode) => {
-            set({ connectionMode: mode });
-          },
-          onReady: () => {
+          onPeerReady: (peerId) => {
             set({ connectionState: 'connected' });
-            // Initialize ReceiverEngine on host so incoming files from peers can be received
+            const peerConn = mesh.getPeer(peerId);
+            if (!peerConn) return;
+
+            // Initialize per-peer ReceiverEngine on host so incoming files from this peer can be received
             const sinkFactory = createDefaultSinkFactory();
             activeSinkFactory = sinkFactory;
             const rxEngine = new ReceiverEngine({
               transferId: get().sessionId || 'transfer',
               sinkFactory,
-              channel: webrtc,
+              channel: peerConn,
               onMeta: (files, peerName) => {
                 set({
                   incomingReviewFiles: files,
                   peerDevice: peerName ? { name: peerName, platform: '', browser: '' } : null,
                 });
-                if (activeReceiverEngine) {
-                  void activeReceiverEngine.accept();
-                }
+                void rxEngine.accept();
               },
               onUpdate: (snapshot) => {
                 set({ receiverSnapshot: snapshot });
@@ -373,16 +401,16 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                 set({ error: err });
               },
             });
-            activeReceiverEngine = rxEngine;
+            hostReceiverEngines.set(peerId, rxEngine);
 
-            // Both data channels open! If files were selected before connecting, start transfer
+            // If host already has files staged, stream them to this newly ready peer
             const currentFiles = get().selectedFiles;
             if (currentFiles.length > 0) {
               const fileSources = createFileSources(currentFiles);
               const engine = new SenderEngine({
                 sources: fileSources.map((f) => f.source),
                 device: getLocalDeviceInfo(),
-                channel: webrtc,
+                channel: peerConn,
                 onUpdate: (snapshot) => {
                   set({ senderSnapshot: snapshot });
                 },
@@ -391,7 +419,7 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
               void engine.start();
             }
           },
-          onControlMessage: (message: ControlMessage) => {
+          onControlMessage: (message: ControlMessage, fromPeerId: string) => {
             const rxTypes = ['hello', 'meta', 'file-begin', 'file-end', 'done'];
             const txTypes = ['accept', 'resume-state', 'progress', 'file-verified', 'pause', 'resume', 'reject'];
 
@@ -413,6 +441,12 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   },
                 ],
               }));
+              // Relay chat message to all other connected peers
+              for (const pid of mesh.peerIds) {
+                if (pid !== fromPeerId) {
+                  mesh.sendControlToPeer(pid, message);
+                }
+              }
             } else if (message.type === 'chat:voice') {
               set((state) => ({
                 chatMessages: [
@@ -428,6 +462,12 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   },
                 ],
               }));
+              // Relay voice note to all other connected peers
+              for (const pid of mesh.peerIds) {
+                if (pid !== fromPeerId) {
+                  mesh.sendControlToPeer(pid, message);
+                }
+              }
             } else if (message.type === 'peer:leave') {
               set((state) => ({
                 peers: state.peers.filter((p) => p.peerId !== message.peerId),
@@ -443,16 +483,19 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
                   },
                 ],
               }));
-            } else if (rxTypes.includes(message.type) && activeReceiverEngine) {
-              activeReceiverEngine.handleControl(message);
+              for (const pid of mesh.peerIds) {
+                if (pid !== fromPeerId) {
+                  mesh.sendControlToPeer(pid, message);
+                }
+              }
+            } else if (rxTypes.includes(message.type)) {
+              hostReceiverEngines.get(fromPeerId)?.handleControl(message);
             } else if (txTypes.includes(message.type) && activeSenderEngine) {
               activeSenderEngine.handleControl(message);
             }
           },
-          onBinaryFrame: (frame: ArrayBuffer) => {
-            if (activeReceiverEngine) {
-              activeReceiverEngine.handleBinary(frame);
-            }
+          onBinaryFrame: (frame: ArrayBuffer, fromPeerId: string) => {
+            hostReceiverEngines.get(fromPeerId)?.handleBinary(frame);
           },
         });
 
@@ -1029,7 +1072,6 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       };
       set((state) => ({
         chatMessages: [...state.chatMessages, newMsg],
-        selectedFiles: attachedFiles ? [...state.selectedFiles, ...attachedFiles] : state.selectedFiles,
       }));
 
       const controlMsg: ControlMessage = {
@@ -1044,8 +1086,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         audioPayloadBase64: voice?.base64,
         durationSeconds: voice?.durationSeconds,
       };
-      if (activeWebRtc && activeWebRtc.isOpen) {
-        activeWebRtc.sendControl(controlMsg);
+      const channel = getActiveChannel();
+      if (channel && channel.isOpen) {
+        channel.sendControl(controlMsg);
       }
       if (attachedFiles && attachedFiles.length > 0) {
         get().addFiles(attachedFiles);
@@ -1077,8 +1120,9 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         mime: result.mime,
         audioPayloadBase64: result.base64,
       };
-      if (activeWebRtc && activeWebRtc.isOpen) {
-        activeWebRtc.sendControl(controlMsg);
+      const channel = getActiveChannel();
+      if (channel && channel.isOpen) {
+        channel.sendControl(controlMsg);
       }
     },
 
@@ -1086,6 +1130,10 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
       const { sessionId } = get();
       if (activeSignaling && sessionId && activePeerToken) {
         void activeSignaling.leaveSession({ sessionId, peerToken: activePeerToken });
+      }
+      if (activeMesh) {
+        activeMesh.closeAll();
+        activeMesh = null;
       }
       if (activeWebRtc) {
         activeWebRtc.close();
@@ -1113,8 +1161,12 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         type: 'peer:leave',
         peerId,
       };
-      if (activeWebRtc && activeWebRtc.isOpen) {
-        activeWebRtc.sendControl(controlMsg);
+      const channel = getActiveChannel();
+      if (channel && channel.isOpen) {
+        channel.sendControl(controlMsg);
+      }
+      if (activeMesh) {
+        activeMesh.removePeer(peerId);
       }
     },
 

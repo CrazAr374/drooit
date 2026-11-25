@@ -153,6 +153,10 @@ export class MeshManager implements TransferChannel {
     await peer.handleSignal(payload);
   }
 
+  getPeer(peerId: string): WebRtcConnection | undefined {
+    return this.peers.get(peerId);
+  }
+
   removePeer(peerId: string): void {
     const peer = this.peers.get(peerId);
     if (peer) {

@@ -53,14 +53,14 @@ export class PairingService {
     inviteToken?: string;
     device: DeviceInput;
     socketId: string;
-  }): { session: SessionRecord; peerToken: string } {
+  }): { session: SessionRecord; peerToken: string; receiver: PeerRecord } {
     const result = this.sessions.joinByCode({
       code: params.code,
       inviteToken: params.inviteToken,
       device: sanitizeDevice(params.device),
       socketId: params.socketId,
     });
-    return { session: result.session, peerToken: result.peerToken };
+    return { session: result.session, peerToken: result.peerToken, receiver: result.receiver };
   }
 
   resumeSession(params: {
