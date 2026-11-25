@@ -19,28 +19,29 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hasScannedRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) return;
 
     let mounted = true;
+    hasScannedRef.current = false;
     setError(null);
 
     const initScanner = async () => {
       try {
-        const devices = await Html5Qrcode.getCameras();
-        if (!mounted) return;
+        // Start with OS-preferred primary rear camera (continuous autofocus) first,
+        // and also enumerate cameras so user can switch if desired.
+        void startScanning({ facingMode: 'environment' });
 
+        const devices = await Html5Qrcode.getCameras().catch(() => []);
+        if (!mounted) return;
         if (devices && devices.length > 0) {
           setCameras(devices);
           const backCam = devices.find((d) => /back|rear|environment/i.test(d.label));
-          const camId = backCam ? backCam.id : devices[0]!.id;
-          setSelectedCameraId(camId);
-          startScanning(camId);
-        } else {
-          setError('No camera detected on this device. You can upload an image of the QR code instead.');
+          setSelectedCameraId(backCam ? backCam.id : devices[0]!.id);
         }
-      } catch (err) {
+      } catch {
         if (!mounted) return;
         setError('Camera permission denied or camera unavailable. You can upload a QR image.');
       }
@@ -50,35 +51,66 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
     return () => {
       mounted = false;
-      stopScanning();
+      void stopScanning();
     };
   }, [isOpen]);
 
-  const startScanning = async (cameraId: string) => {
+  const startScanning = async (cameraIdOrConfig: string | { facingMode: string }) => {
     try {
-      if (scannerRef.current) {
-        await stopScanning();
-      }
+      await stopScanning();
 
       const scanner = new Html5Qrcode('qr-scanner-view', {
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true,
+        },
         verbose: false,
       });
       scannerRef.current = scanner;
 
       await scanner.start(
-        cameraId,
+        cameraIdOrConfig,
         {
-          fps: 10,
-          qrbox: { width: 240, height: 240 },
+          fps: 20,
+          aspectRatio: 1,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const size = Math.max(180, Math.floor(minEdge * 0.8));
+            return { width: size, height: size };
+          },
+          videoConstraints: {
+            ...(typeof cameraIdOrConfig === 'string'
+              ? { deviceId: { exact: cameraIdOrConfig } }
+              : { facingMode: cameraIdOrConfig.facingMode }),
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
         },
         (decodedText) => {
-          onScanResult(decodedText);
-          onClose();
+          if (hasScannedRef.current) return;
+          hasScannedRef.current = true;
+          void stopScanning().finally(() => {
+            onScanResult(decodedText);
+            onClose();
+          });
         },
         () => {},
       );
     } catch (err) {
+      // Fallback: if facingMode constraint failed on desktop without rear cam, try default camera
+      if (typeof cameraIdOrConfig !== 'string') {
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (devices && devices.length > 0) {
+            setCameras(devices);
+            setSelectedCameraId(devices[0]!.id);
+            await startScanning(devices[0]!.id);
+            return;
+          }
+        } catch {
+          // Fall through to error display
+        }
+      }
       setError((err as Error).message || 'Failed to start camera.');
     }
   };
@@ -109,11 +141,21 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   const handleFileScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0]!;
+    e.target.value = '';
     try {
-      const scanner = new Html5Qrcode('qr-scanner-view');
-      const result = await scanner.scanFile(file, true);
-      onScanResult(result);
-      onClose();
+      await stopScanning();
+      const scanner = new Html5Qrcode('qr-scanner-view', {
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        verbose: false,
+      });
+      const result = await scanner.scanFile(file, false);
+      scanner.clear();
+      if (!hasScannedRef.current) {
+        hasScannedRef.current = true;
+        onScanResult(result);
+        onClose();
+      }
     } catch {
       setError('Could not detect a QR code in the uploaded image.');
     }
@@ -151,7 +193,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
         {/* Viewport with Optical HUD Reticle */}
         <div className="relative my-3.5 aspect-square w-full rounded-lg overflow-hidden bg-black flex items-center justify-center border border-border">
-          <div id="qr-scanner-view" className="w-full h-full" />
+          <div id="qr-scanner-view" className="w-full h-full [&_video]:object-cover [&_video]:w-full [&_video]:h-full" />
 
           {/* Optical Viewfinder Overlay (HUD) */}
           {!error && (

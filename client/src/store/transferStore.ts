@@ -507,8 +507,8 @@ export const useTransferStore = create<TransferStoreState>((set, get) => {
         const origin = typeof window !== 'undefined' ? window.location.origin : '';
         const inviteUrl = `${origin}/?join=${result.session.code}&token=${result.inviteToken}`;
         const qrDataUrl = await QRCode.toDataURL(inviteUrl, {
-          margin: 2,
-          width: 320,
+          margin: 3,
+          width: 400,
           errorCorrectionLevel: 'M',
           color: {
             dark: '#000000',
